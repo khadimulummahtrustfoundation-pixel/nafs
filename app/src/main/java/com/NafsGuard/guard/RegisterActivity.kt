@@ -56,6 +56,7 @@ class RegisterActivity : Activity() {
                 runOnUiThread {
                     if (r.ok && r.approved) {
                         Prefs.setLogin(c, p, w, r.name.ifEmpty { n })
+                        Session.unlocked = true
                         startActivity(Intent(c, MainActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
                     } else if (r.ok) {

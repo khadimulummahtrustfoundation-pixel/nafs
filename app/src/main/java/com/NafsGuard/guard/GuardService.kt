@@ -1,6 +1,7 @@
 package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
+import android.net.VpnService
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -26,10 +27,36 @@ class GuardService : AccessibilityService() {
         "com.android.packageinstaller", "com.samsung.android.packageinstaller"
     )
 
+    // সেটআপের সময় এই অ্যাপগুলোতে গেলে সেশন থাকবে; অন্য কোথাও গেলে সেশন শেষ
+    private val tripPkgs = setOf(
+        "com.android.settings", "com.android.systemui", "com.android.vpndialogs",
+        "com.google.android.permissioncontroller", "com.android.permissioncontroller",
+        "com.google.android.packageinstaller", "com.android.packageinstaller",
+        "com.samsung.android.packageinstaller", "com.samsung.android.app.settings"
+    )
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        if (Prefs.loggedIn(this) && Prefs.dnsAuto(this) && !PrivateDns.isOn(this)) {
+            PrivateDns.apply(this)
+        }
+        if (Prefs.loggedIn(this) && Prefs.safe(this) && !DnsVpnService.active &&
+            VpnService.prepare(this) == null) {
+            try { DnsVpnService.start(this) } catch (e: Exception) {}
+        }
+    }
+
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (!Prefs.loggedIn(this)) return
         val pkg = e.packageName?.toString() ?: return
         if (pkg == packageName) return
+
+        // সেটিংস থেকে Home/অন্য অ্যাপে গেলে অ্যাপের লগইন সেশন শেষ
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            Session.keepUntil != 0L && pkg !in tripPkgs) {
+            Session.unlocked = false
+            Session.keepUntil = 0L
+        }
 
         if (e.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
             checkInput(e.source)
