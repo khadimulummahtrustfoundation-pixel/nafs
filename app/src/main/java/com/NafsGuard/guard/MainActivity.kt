@@ -72,7 +72,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             val p = Ui.dp(c, 18); setPadding(p, p, p, p)
         }
-        root.addView(Ui.text(c, "🛡️ NafsGuard", 26f, true, Ui.GREEN))
+        root.addView(Ui.logo(c, 72))
+        root.addView(Ui.text(c, "NafsGuard", 26f, true, Ui.GREEN).apply { gravity = android.view.Gravity.CENTER })
         root.addView(Ui.text(c, "স্বাগতম, ${Prefs.name(c)}"))
 
         // ---- সেটআপ ----

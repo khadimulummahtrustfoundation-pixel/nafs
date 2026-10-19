@@ -23,7 +23,8 @@ class RegisterActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             val p = Ui.dp(c, 28); setPadding(p, p, p, p)
         }
-        root.addView(Ui.text(c, "🛡️ NafsGuard", 30f, true, Ui.GREEN).apply { gravity = Gravity.CENTER })
+        root.addView(Ui.logo(c, 96))
+        root.addView(Ui.text(c, "NafsGuard", 30f, true, Ui.GREEN).apply { gravity = Gravity.CENTER })
         root.addView(Ui.text(c, "নতুন অ্যাকাউন্ট খুলুন").apply { gravity = Gravity.CENTER })
         val name = Ui.edit(c, "আপনার নাম")
         val phone = Ui.edit(c, "ফোন নম্বর").apply { inputType = InputType.TYPE_CLASS_PHONE }

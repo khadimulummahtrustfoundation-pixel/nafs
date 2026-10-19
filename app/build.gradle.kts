@@ -23,3 +23,25 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+// Hind Siliguri ফন্ট বিল্ডের সময় ডাউনলোড হয়ে APK এর ভেতরে ঢুকে যায়
+val fontDir = File(projectDir, "src/main/assets/fonts")
+tasks.register("downloadFonts") {
+    doLast {
+        fontDir.mkdirs()
+        listOf("Regular", "Bold").forEach { w ->
+            val f = File(fontDir, "HindSiliguri-$w.ttf")
+            if (!f.exists() || f.length() < 10000) {
+                try {
+                    java.net.URL("https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-$w.ttf")
+                        .openStream().use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    println("Downloaded font: $w")
+                } catch (e: Exception) {
+                    println("Font download failed ($w): ${e.message}")
+                    f.delete()
+                }
+            }
+        }
+    }
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn("downloadFonts") }

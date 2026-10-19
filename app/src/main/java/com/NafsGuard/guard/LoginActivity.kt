@@ -23,7 +23,8 @@ class LoginActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             val p = Ui.dp(c, 28); setPadding(p, p, p, p)
         }
-        root.addView(Ui.text(c, "🛡️ NafsGuard", 30f, true, Ui.GREEN).apply { gravity = Gravity.CENTER })
+        root.addView(Ui.logo(c, 110))
+        root.addView(Ui.text(c, "NafsGuard", 30f, true, Ui.GREEN).apply { gravity = Gravity.CENTER })
         root.addView(Ui.text(c, "লগইন করুন").apply { gravity = Gravity.CENTER })
         val phone = Ui.edit(c, "ফোন নম্বর").apply { inputType = InputType.TYPE_CLASS_PHONE }
         val pass = Ui.edit(c, "পাসওয়ার্ড").apply {

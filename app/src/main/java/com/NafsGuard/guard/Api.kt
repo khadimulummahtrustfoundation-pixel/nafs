@@ -7,7 +7,7 @@ import java.net.URLEncoder
 
 object Api {
     const val ENDPOINT =
-        "https://script.google.com/macros/s/AKfycbyFrKYSJ4nZ-Ws-xt138hiDcC7oKmiuSZhvumxJ6x5-YBZLJwBNuWmfkS_aXhiwhV_A/exec"
+        "https://script.google.com/macros/s/AKfycbz1O2A9v49gd1TVEwTiAd15-vzEu7gMaRq-q0zXI1JjTVYrKrlRXdflU9aEUBDvCgMA/exec"
 
     data class Res(
         val ok: Boolean, val msg: String,

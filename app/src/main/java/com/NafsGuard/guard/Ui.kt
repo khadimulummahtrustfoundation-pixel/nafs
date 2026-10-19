@@ -12,6 +12,29 @@ object Ui {
     val DARK = Color.parseColor("#1B5E20")
     val LIGHT = Color.parseColor("#E8F5E9")
 
+    private var reg: Typeface? = null
+    private var bld: Typeface? = null
+    private var loaded = false
+
+    // Hind Siliguri (assets/fonts এ থাকলে), না থাকলে সিস্টেম ফন্ট
+    fun tf(c: Context, bold: Boolean): Typeface {
+        if (!loaded) {
+            loaded = true
+            try { reg = Typeface.createFromAsset(c.applicationContext.assets, "fonts/HindSiliguri-Regular.ttf") } catch (e: Exception) {}
+            try { bld = Typeface.createFromAsset(c.applicationContext.assets, "fonts/HindSiliguri-Bold.ttf") } catch (e: Exception) {}
+        }
+        val f = if (bold) (bld ?: reg) else (reg ?: bld)
+        return f ?: if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+    }
+
+    fun logo(c: Context, size: Int) = ImageView(c).apply {
+        setImageResource(R.drawable.logo)
+        layoutParams = LinearLayout.LayoutParams(dp(c, size), dp(c, size)).apply {
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(c, 8)
+        }
+    }
+
     fun dp(c: Context, v: Int) = (v * c.resources.displayMetrics.density).toInt()
 
     private fun lp(c: Context, top: Int) =
@@ -21,19 +44,19 @@ object Ui {
     fun text(c: Context, s: String, size: Float = 15f, bold: Boolean = false, color: Int = DARK) =
         TextView(c).apply {
             text = s; textSize = size; setTextColor(color)
-            if (bold) setTypeface(null, Typeface.BOLD)
+            typeface = tf(c, bold)
             layoutParams = lp(c, 6)
         }
 
     fun button(c: Context, label: String, onClick: () -> Unit) = Button(c).apply {
-        text = label; setTextColor(Color.WHITE); isAllCaps = false; textSize = 16f
+        text = label; setTextColor(Color.WHITE); isAllCaps = false; textSize = 16f; typeface = tf(c, true)
         background = GradientDrawable().apply { setColor(GREEN); cornerRadius = dp(c, 12).toFloat() }
         layoutParams = lp(c, 8)
         setOnClickListener { onClick() }
     }
 
     fun edit(c: Context, hint: String) = EditText(c).apply {
-        this.hint = hint; setTextColor(Color.BLACK)
+        this.hint = hint; setTextColor(Color.BLACK); typeface = tf(c, false)
         setPadding(dp(c, 14), dp(c, 12), dp(c, 14), dp(c, 12))
         background = GradientDrawable().apply {
             setColor(Color.WHITE); setStroke(dp(c, 2), GREEN); cornerRadius = dp(c, 12).toFloat()
@@ -49,7 +72,7 @@ object Ui {
     }
 
     fun link(c: Context, label: String, onClick: () -> Unit) = TextView(c).apply {
-        text = label; textSize = 15f; setTextColor(GREEN); setTypeface(null, Typeface.BOLD)
+        text = label; textSize = 15f; setTextColor(GREEN); typeface = tf(c, true)
         gravity = android.view.Gravity.CENTER
         setPadding(dp(c, 8), dp(c, 14), dp(c, 8), dp(c, 14))
         layoutParams = lp(c, 6)
