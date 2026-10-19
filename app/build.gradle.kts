@@ -1,3 +1,5 @@
+import java.net.URL
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -33,7 +35,7 @@ tasks.register("downloadFonts") {
             val f = File(fontDir, "HindSiliguri-$w.ttf")
             if (!f.exists() || f.length() < 10000) {
                 try {
-                    java.net.URL("https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-$w.ttf")
+                    URL("https://raw.githubusercontent.com/google/fonts/main/ofl/hindsiliguri/HindSiliguri-$w.ttf")
                         .openStream().use { i -> f.outputStream().use { o -> i.copyTo(o) } }
                     println("Downloaded font: $w")
                 } catch (e: Exception) {
