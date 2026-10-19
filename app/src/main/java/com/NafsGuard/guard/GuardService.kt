@@ -99,7 +99,9 @@ class GuardService : AccessibilityService() {
         "com.android.settings", "com.android.systemui", "com.android.vpndialogs",
         "com.google.android.permissioncontroller", "com.android.permissioncontroller",
         "com.google.android.packageinstaller", "com.android.packageinstaller",
-        "com.samsung.android.packageinstaller", "com.samsung.android.app.settings"
+        "com.samsung.android.packageinstaller", "com.samsung.android.app.settings",
+        "com.miui.securitycenter", "com.miui.powerkeeper", "com.coloros.safecenter",
+        "com.huawei.systemmanager", "com.samsung.android.lool"
     )
 
     override fun onServiceConnected() {

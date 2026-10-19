@@ -9,9 +9,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
+import android.os.PowerManager
 import android.os.Looper
 import android.provider.Settings
 import android.widget.LinearLayout
@@ -109,7 +111,7 @@ class MainActivity : Activity() {
             build()
             return
         }
-        showDnsHelp()
+        enableVpnMode()
     }
 
     private fun showDnsHelp() {
@@ -125,7 +127,6 @@ class MainActivity : Activity() {
                 Session.keepFor()
                 PrivateDns.openSettings(this)
             }
-            .setNeutralButton("VPN মোড") { _, _ -> enableVpnMode() }
             .setNegativeButton("বাতিল", null)
             .show()
     }
@@ -164,6 +165,18 @@ class MainActivity : Activity() {
         Prefs.setSafe(this, true)
         DnsVpnService.start(this)
         refreshLater()
+        askBattery()
+    }
+
+    // ফোন (Xiaomi/Samsung ইত্যাদি) ব্যাকগ্রাউন্ডে VPN বন্ধ করে দেওয়া ঠেকাতে
+    private fun askBattery() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                openExternal(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName")))
+            }
+        } catch (e: Exception) {}
     }
 
     private fun build() {
@@ -209,8 +222,9 @@ class MainActivity : Activity() {
             else -> "❌ সেইফ সার্চ বন্ধ"
         }))
         if (!safe) {
-            setup.addView(Ui.text(c, "বাটন চাপলে অ্যাডাল্ট সাইট ব্লক ও সেইফ সার্চ সেট হবে।", 13f))
+            setup.addView(Ui.text(c, "বাটন চাপলে একবার VPN অনুমতি চাইবে, OK দিন। এটা শুধু নিরাপদ DNS-এর জন্য, নেটের স্পিড বদলায় না।", 13f))
             setup.addView(Ui.button(c, "সেইফ সার্চ অন করুন") { enableSafe() })
+            setup.addView(Ui.link(c, "অথবা Private DNS ম্যানুয়ালি সেট করুন") { showDnsHelp() })
         } else if (!locked) {
             setup.addView(Ui.button(c, "সেইফ সার্চ বন্ধ করুন") { disableSafe() })
         }
