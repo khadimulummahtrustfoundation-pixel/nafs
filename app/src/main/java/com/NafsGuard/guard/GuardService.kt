@@ -1,8 +1,13 @@
 package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
+import android.content.Context
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
@@ -121,7 +126,7 @@ class GuardService : AccessibilityService() {
         }
 
         if (e.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            checkInput(e.source)
+            checkInput(e, pkg)
             return
         }
         val now = System.currentTimeMillis()
@@ -139,7 +144,7 @@ class GuardService : AccessibilityService() {
             root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
                 val t = n.text?.toString() ?: return@forEach
                 if (Guard.isBad(this, t)) {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    closeApp(pkg)
                     toast("🚫 এই সাইট ব্লক করা হয়েছে")
                     return
                 }
@@ -147,16 +152,46 @@ class GuardService : AccessibilityService() {
         }
     }
 
-    private fun checkInput(n: AccessibilityNodeInfo?) {
-        n ?: return
-        if (n.isPassword) return
-        val t = n.text?.toString() ?: return
-        if (Guard.isBad(this, t)) {
-            val args = Bundle()
-            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
-            n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            toast("🚫 নিষিদ্ধ শব্দ — লেখা মুছে ফেলা হয়েছে")
+    private var lastKick = 0L
+
+    // আগে লেখা মুছে ফেলা; সেট-টেক্সট কাজ না করলে সব সিলেক্ট করে কাট
+    private fun clearField(n: AccessibilityNodeInfo, len: Int) {
+        val args = Bundle()
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+        if (!n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            val sel = Bundle()
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, len)
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
+            n.performAction(AccessibilityNodeInfo.ACTION_CUT)
         }
+    }
+
+    // লেখা মুছার পর অ্যাপ বন্ধ: আগে হোমে পাঠানো, তারপর ব্যাকগ্রাউন্ড প্রসেস কিল
+    // (আবার খুললে অ্যাপ নতুন করে শুরু হবে, সার্চ বক্স ফাঁকা থাকবে)
+    private fun closeApp(pkg: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastKick < 1500) return
+        lastKick = now
+        val h = Handler(Looper.getMainLooper())
+        h.postDelayed({ performGlobalAction(GLOBAL_ACTION_HOME) }, 250)
+        if (pkg == "com.android.systemui" || pkg == packageName) return
+        h.postDelayed({
+            try {
+                (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                    .killBackgroundProcesses(pkg)
+            } catch (e: Exception) {}
+        }, 1200)
+    }
+
+    private fun checkInput(e: AccessibilityEvent, pkg: String) {
+        val n = e.source ?: return
+        if (n.isPassword) return
+        val t = n.text?.toString() ?: e.text.joinToString("")
+        if (!Guard.isBad(this, t)) return
+        clearField(n, t.length)
+        toast("🚫 নিষিদ্ধ শব্দ — লেখা মুছে ফেলা হয়েছে")
+        closeApp(pkg)
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
