@@ -47,4 +47,12 @@ object Ui {
         background = GradientDrawable().apply { setColor(LIGHT); cornerRadius = dp(c, 16).toFloat() }
         layoutParams = lp(c, 14)
     }
+
+    fun link(c: Context, label: String, onClick: () -> Unit) = TextView(c).apply {
+        text = label; textSize = 15f; setTextColor(GREEN); setTypeface(null, Typeface.BOLD)
+        gravity = android.view.Gravity.CENTER
+        setPadding(dp(c, 8), dp(c, 14), dp(c, 8), dp(c, 14))
+        layoutParams = lp(c, 6)
+        setOnClickListener { onClick() }
+    }
 }

@@ -52,6 +52,11 @@ class LoginActivity : Activity() {
             }.start()
         }
         root.addView(btn)
-        setContentView(root)
+        root.addView(Ui.link(c, "নতুন? অ্যাকাউন্ট খুলুন (Sign up)") {
+            startActivity(Intent(c, RegisterActivity::class.java))
+        })
+        setContentView(android.widget.ScrollView(c).apply {
+            setBackgroundColor(Color.WHITE); isFillViewport = true; addView(root)
+        })
     }
 }
