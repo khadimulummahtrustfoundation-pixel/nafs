@@ -44,15 +44,18 @@ object PrivateDns {
         } catch (e: Exception) { false }
     }
 
-    // Private DNS পেজ খোলার চেষ্টা; না পেলে নেটওয়ার্ক সেটিংস, তাও না পেলে মূল সেটিংস
+    // Private DNS পেজ খোলার চেষ্টা। সরাসরি না পেলে নেটওয়ার্ক সেটিংসে গিয়ে
+    // গার্ড সার্ভিস নিজে "Private DNS" সারিতে ক্লিক করে ঢুকে যাবে (অ্যাক্সেসিবিলিটি চালু থাকলে)
     fun openSettings(a: Activity) {
+        GuardService.startDnsNav()
         val tries = listOf(
-            "android.settings.PRIVATE_DNS_SETTINGS",
-            Settings.ACTION_WIRELESS_SETTINGS,
-            Settings.ACTION_SETTINGS
+            Intent("android.settings.PRIVATE_DNS_SETTINGS"),
+            Intent().setClassName("com.android.settings", "com.android.settings.Settings\$NetworkDashboardActivity"),
+            Intent(Settings.ACTION_WIRELESS_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS)
         )
-        for (act in tries) {
-            try { a.startActivity(Intent(act)); return } catch (e: Exception) {}
+        for (i in tries) {
+            try { a.startActivity(i); return } catch (e: Exception) {}
         }
     }
 }

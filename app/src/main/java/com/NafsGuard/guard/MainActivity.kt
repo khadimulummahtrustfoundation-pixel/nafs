@@ -113,12 +113,8 @@ class MainActivity : Activity() {
     }
 
     private fun showDnsHelp() {
-        val msg = "Android নিরাপত্তার কারণে সাধারণ অ্যাপকে Private DNS নিজে বদলাতে দেয় না।\n\n" +
-            "✅ একবারের অটো সমাধান: কম্পিউটার থেকে USB ডিবাগিং অন করে এই কমান্ড দিন:\n" +
-            "adb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS\n" +
-            "এরপর এই বাটন চাপলেই সব অটো সেট হবে।\n\n" +
-            "অথবা এখনই: নিচের বাটনে চাপলে হোস্টনেম কপি হয়ে সেটিংস খুলবে। " +
-            "Private DNS → 'Private DNS provider hostname' বেছে পেস্ট করে Save দিন।"
+        val msg = "নিচের বাটন চাপলে নামটি কপি হবে ও সেটিংস খুলবে।\n\n" +
+            "সেখানে Private DNS → 'Private DNS provider hostname' বেছে পেস্ট করে Save দিন।"
         AlertDialog.Builder(this)
             .setTitle("সেইফ সার্চ সেট করুন")
             .setMessage(msg)

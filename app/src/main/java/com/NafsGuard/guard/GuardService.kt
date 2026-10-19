@@ -11,6 +11,68 @@ class GuardService : AccessibilityService() {
 
     private var last = 0L
 
+    companion object {
+        @Volatile private var navUntil = 0L
+        @Volatile private var navClicks = 0
+        @Volatile private var navScrolls = 0
+        private val hopped = mutableSetOf<String>()
+
+        // Private DNS পেজে পৌঁছানোর জন্য ৪৫ সেকেন্ড অটো-নেভিগেশন চালু
+        fun startDnsNav() {
+            navUntil = System.currentTimeMillis() + 45_000L
+            navClicks = 0; navScrolls = 0; hopped.clear()
+        }
+    }
+
+    private val dnsWords = listOf("private dns", "প্রাইভেট ডিএনএস", "প্রাইভেট dns")
+    private val hostWords = listOf("hostname", "হোস্টনেম")
+    private val hopWords = listOf(
+        "more connection settings", "connection & sharing", "connections & sharing",
+        "advanced", "আরও সংযোগ সেটিংস", "উন্নত"
+    )
+
+    private fun firstNode(root: AccessibilityNodeInfo, w: String): AccessibilityNodeInfo? =
+        root.findAccessibilityNodeInfosByText(w).firstOrNull()
+
+    private fun clickUp(n: AccessibilityNodeInfo): Boolean {
+        var x: AccessibilityNodeInfo? = n
+        var i = 0
+        while (x != null && i < 6) {
+            if (x.isClickable) return x.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            x = x.parent; i++
+        }
+        return false
+    }
+
+    private fun scrollable(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (n.isScrollable) return n
+        for (i in 0 until n.childCount) {
+            val c = n.getChild(i) ?: continue
+            val r = scrollable(c)
+            if (r != null) return r
+        }
+        return null
+    }
+
+    // সেটিংসে "Private DNS" খুঁজে ক্লিক; হোস্টনেম অপশন দেখা গেলে থেমে যায় (পেস্ট ইউজার নিজে করবে)
+    private fun dnsAssist(root: AccessibilityNodeInfo) {
+        if (System.currentTimeMillis() > navUntil || navClicks >= 8) return
+        if (hostWords.any { firstNode(root, it) != null }) { navUntil = 0L; return }
+        for (w in dnsWords) {
+            val n = firstNode(root, w) ?: continue
+            if (clickUp(n)) { navClicks++; return }
+        }
+        for (w in hopWords) {
+            if (w in hopped) continue
+            val n = firstNode(root, w) ?: continue
+            if (clickUp(n)) { hopped.add(w); navClicks++; return }
+        }
+        if (navScrolls < 10) {
+            val s = scrollable(root)
+            if (s != null && s.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) navScrolls++
+        }
+    }
+
     private val urlBars = mapOf(
         "com.android.chrome" to listOf("com.android.chrome:id/url_bar"),
         "com.brave.browser" to listOf("com.brave.browser:id/url_bar"),
@@ -72,6 +134,7 @@ class GuardService : AccessibilityService() {
             toast("লক চালু — NafsGuard সেটিংস বন্ধ")
             return
         }
+        if (pkg.contains("settings")) dnsAssist(root)
         urlBars[pkg]?.forEach { id ->
             root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
                 val t = n.text?.toString() ?: return@forEach
