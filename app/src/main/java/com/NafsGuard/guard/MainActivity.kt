@@ -3,8 +3,6 @@ package com.NafsGuard.guard
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -24,7 +22,6 @@ import android.widget.Toast
 class MainActivity : Activity() {
 
     private val REQ_VPN = 77
-    private val DNS_HOST = "family-filter-dns.cleanbrowsing.org"
 
     private val admin get() = ComponentName(this, AdminReceiver::class.java)
     private val dpm get() = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -129,30 +126,6 @@ class MainActivity : Activity() {
         refreshLater()
     }
 
-    // Address কপি করে, কোথায় গিয়ে কীভাবে পেস্ট করে সেট করতে হবে তা দেখানো
-    private fun copyDnsAndExplain() {
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("NafsGuard DNS", DNS_HOST))
-        toast("Address কপি হয়েছে: $DNS_HOST")
-        AlertDialog.Builder(this)
-            .setTitle("Private DNS যেভাবে সেট করবেন")
-            .setMessage(
-                "Address কপি হয়ে গেছে, এখন:\n\n" +
-                "১) ফোনের Settings অ্যাপ খুলুন\n" +
-                "২) Network & Internet (কারো ফোনে Connections) → More/Private DNS খুঁজুন\n" +
-                "৩) 'Private DNS' চাপুন, তারপর 'Private DNS provider hostname' সিলেক্ট করুন\n" +
-                "৪) খালি বক্সে চেপে ধরে 'Paste' করুন (যা এখন কপি করা আছে)\n" +
-                "৫) Save/Done চাপুন।\n\n" +
-                "এরপর NafsGuard লক চালু থাকলে এই সেটিংস থেকে আর বের হয়ে বন্ধ/পরিবর্তন করা যাবে না।"
-            )
-            .setPositiveButton("ঠিক আছে", null)
-            .setNeutralButton("Address আবার কপি করুন") { _, _ ->
-                cm.setPrimaryClip(ClipData.newPlainText("NafsGuard DNS", DNS_HOST))
-                toast("আবার কপি হয়েছে")
-            }
-            .show()
-    }
-
     private fun build() {
         val c: Context = this
         val locked = Prefs.locked(c)
@@ -207,25 +180,17 @@ class MainActivity : Activity() {
                 refreshLater()
             })
         }
-
-        // ---- এক্সট্রা সেফটি: ফোনের নিজস্ব Private DNS-এও একই ফিল্টার বসানো ----
-        // (উপরের সেইফ সার্চ অ্যাপ বন্ধ/ক্র্যাশ হলেও এটি আলাদাভাবে কাজ করবে)
-        setup.addView(Ui.text(c, "↓ বাটনে ক্লিক করে Address কপি করে সেট করুন।", 13f))
-        setup.addView(Ui.button(c, "এক্সট্রা সেফটি") { copyDnsAndExplain() })
         root.addView(setup)
 
         // ---- শব্দ তালিকা ----
         val wc = Ui.card(c)
         wc.addView(Ui.text(c, "নিজের ব্লক শব্দ", 17f, true))
+        wc.addView(Ui.text(c, "পুরো শব্দ মিললে ব্লক হবে। শব্দের রূপভেদও ধরতে চাইলে শেষে * দিন (যেমন: জুয়া*)।", 12f))
         val input = Ui.edit(c, "শব্দ লিখুন")
         wc.addView(input)
         wc.addView(Ui.button(c, "শব্দ যোগ করুন") {
             val w = input.text.toString().trim()
-            if (w.length < 3) { toast("কমপক্ষে ৩ অক্ষর দিন (খুব ছোট শব্দ দিলে ভুলভাবে সাধারণ শব্দও ব্লক হয়ে যেতে পারে)"); return@button }
-            if (Guard.isCommonWord(w)) {
-                toast("এটি খুবই সাধারণ একটি শব্দ, এটা যোগ করলে স্বাভাবিক লেখাও ব্লক হয়ে যাবে, তাই যোগ করা গেল না")
-                return@button
-            }
+            if (w.count { it.isLetter() } < 3) { toast("কমপক্ষে ৩টি অক্ষর দিন"); return@button }
             Prefs.addWord(c, w); build()
         })
         for (w in Prefs.words(c).sorted()) {
