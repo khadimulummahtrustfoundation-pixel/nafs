@@ -17,7 +17,13 @@ jobs:
         with:
           gradle-version: 8.7
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        shell: bash
+        run: gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
+      - name: Show errors
+        if: failure()
+        shell: bash
+        run: |
+          { grep -E "^e: |error:|Unresolved|AAPT|Execution failed" build.log | head -12; grep -A5 "What went wrong" build.log | head -8; } | sed 's#file:///home/runner/work/[^/]*/[^/]*/##' | while IFS= read -r l; do echo "::error::$l"; done || true
       - uses: actions/upload-artifact@v4
         with:
           name: NafsGuard-apk
