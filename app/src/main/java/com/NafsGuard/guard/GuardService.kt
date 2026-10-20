@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -34,8 +33,6 @@ class GuardService : AccessibilityService() {
     private var overlay: View? = null
     private var lastWinPkg = ""
     private var lastWinClass = ""
-    // "বন্ধ করুন" চাপা অ্যাপগুলো: পরে আবার খুললে একদম নতুন করে চালু হবে
-    private val fresh = HashMap<String, Long>()
     private val handler = Handler(Looper.getMainLooper())
 
     private val poll = object : Runnable {
@@ -72,11 +69,6 @@ class GuardService : AccessibilityService() {
     )
     // ডিভাইস অ্যাডমিন পেজ চেনার শব্দ (অ্যাডমিন চালু থাকলে এগুলোতেও আটকাবে)
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
-
-    // লক চলাকালীন Private DNS পেজ খুলতে ক্লিক করলে পেছনে পাঠানোর শব্দ
-    private val dnsWords = listOf(
-        "private dns", "cleanbrowsing", "প্রাইভেট ডিএনএস", "প্রাইভেট dns", "ব্যক্তিগত dns", "ব্যক্তিগত ডিএনএস"
-    )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -173,11 +165,11 @@ class GuardService : AccessibilityService() {
     }
 
     private fun clickedOurName(e: AccessibilityEvent): Boolean {
-        val words = listOf("nafsguard") + dnsWords
+        val words = listOf("nafsguard")
         val joined = (e.text ?: emptyList<CharSequence>()).joinToString(" ") { cs -> cs.toString().lowercase() }
         if (words.any { joined.contains(it) }) return true
         val src = e.source ?: return false
-        return has(src, "NafsGuard") || dnsWords.any { has(src, it) }
+        return has(src, "NafsGuard")
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
@@ -192,8 +184,6 @@ class GuardService : AccessibilityService() {
             }
         }
         if (pkg == packageName) return
-
-        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) freshStartIfNeeded(pkg, e)
 
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
@@ -218,9 +208,8 @@ class GuardService : AccessibilityService() {
         urlBars[rootPkg]?.forEach { id ->
             root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
                 val t = n.text?.toString() ?: return@forEach
-                val why = Guard.match(this, t)
-                if (why != null) {
-                    showWarning(rootPkg, why)
+                if (Guard.isBad(this, t)) {
+                    showWarning(rootPkg)
                     return
                 }
             }
@@ -231,20 +220,17 @@ class GuardService : AccessibilityService() {
     private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
         if (n.isPassword || !n.isEditable) return
-        // ফাঁকা ঘরের হিন্ট লেখা (যেমন "Message...") যেন ভুল করে লেখা ধরা না হয়
-        if (Build.VERSION.SDK_INT >= 26 && n.isShowingHintText) return
         val t = n.text?.toString() ?: return
-        val why = Guard.match(this, t)
-        if (why != null) {
+        if (Guard.isBad(this, t)) {
             val args = Bundle()
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
             n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            showWarning(pkg, why)
+            showWarning(pkg)
         }
     }
 
     // ---------- সতর্কবার্তা পপ-আপ (সব অ্যাপের ওপরে দেখায়) ----------
-    private fun showWarning(pkg: String, why: String = "") {
+    private fun showWarning(pkg: String) {
         if (overlay != null) return
         val c: Context = this
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -266,10 +252,6 @@ class GuardService : AccessibilityService() {
             .apply { gravity = Gravity.CENTER })
         card.addView(Ui.text(c, "আপাতত ফোনটা রেখে একটু পানি খান বা হাঁটাচলা করুন।", 16f)
             .apply { gravity = Gravity.CENTER })
-        if (why.isNotEmpty()) {
-            // কোন শব্দে ধরেছে তা ছোট করে দেখায়, ভুল ব্লক হলে নিজের শব্দ তালিকা থেকে ঠিক করা যাবে
-            card.addView(Ui.text(c, "ধরা পড়া শব্দ: $why", 11f, false, Color.GRAY).apply { gravity = Gravity.CENTER })
-        }
         card.addView(Ui.button(c, "বন্ধ করুন") { dismissWarning(pkg) })
 
         val m = Ui.dp(c, 28)
@@ -307,34 +289,19 @@ class GuardService : AccessibilityService() {
             !p.contains("systemui") && !p.contains("inputmethod") && !p.contains("settings")
     }
 
-    private fun killPkg(pkg: String) {
-        try {
-            (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).killBackgroundProcesses(pkg)
-        } catch (e: Exception) {}
-    }
-
-    // "বন্ধ করুন": হোমে গিয়ে অ্যাপের প্রসেস বন্ধ করে দেয় (দুইবার চেষ্টা)।
-    // পরে ইউজার আবার খুললে freshStartIfNeeded() অ্যাপটি পুরনো স্ক্রিন ছাড়াই নতুন করে চালু করে।
+    // "বন্ধ করুন": ওভারলে সরিয়ে হোমে গিয়ে ঐ অ্যাপের প্রসেস বন্ধ করে দেয়।
+    // ইউজার আবার অ্যাপ খুললে সেটা নতুন করে (শুরু থেকে) চালু হবে।
+    // কোনো অ্যাপ নিজে থেকে আবার চালু হয়ে গেলে তাই কয়েকবার চেষ্টা করা হয়।
     private fun dismissWarning(pkg: String) {
         removeOverlay()
         performGlobalAction(GLOBAL_ACTION_HOME)
         if (!canKill(pkg)) return
-        fresh[pkg] = System.currentTimeMillis()
-        handler.postDelayed({ killPkg(pkg) }, 400)
-        handler.postDelayed({ killPkg(pkg) }, 1200)
-    }
-
-    private fun freshStartIfNeeded(pkg: String, e: AccessibilityEvent) {
-        val t = fresh[pkg] ?: return
-        val cls = e.className?.toString() ?: ""
-        if (cls.isEmpty() || cls.startsWith("android")) return
-        if (System.currentTimeMillis() - t < 1500) return   // এখনো বন্ধ হওয়ার সময়
-        fresh.remove(pkg)
-        try {
-            val li = packageManager.getLaunchIntentForPackage(pkg) ?: return
-            li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            startActivity(li)
-        } catch (ex: Exception) {}
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        for (delay in longArrayOf(700, 1500, 2500)) {
+            handler.postDelayed({
+                try { am.killBackgroundProcesses(pkg) } catch (e: Exception) {}
+            }, delay)
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()

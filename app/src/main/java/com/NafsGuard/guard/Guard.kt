@@ -3,49 +3,51 @@ package com.NafsGuard.guard
 import android.content.Context
 
 /**
- * খারাপ শব্দ চেনা। শুধু পুরো শব্দ (বা নির্দিষ্ট রূপভেদ) মিললে ব্লক হয়,
- * শব্দের ভেতরের অংশ মিললে আর হয় না।
+ * খারাপ শব্দ চেনা: এখন পুরো শব্দ ধরে মেলানো হয় (আগে শব্দের ভেতরের অংশ ধরত, তাই
+ * "Essex" বা সাধারণ বাংলা শব্দেও ভুল করে আটকে যেত)।
  */
 object Guard {
     private val tokenRe = Regex("[\\p{L}\\p{M}\\p{N}]+")
-
-    // অদৃশ্য অক্ষর (ZWJ/ZWNJ ইত্যাদি) বাদ দেওয়া হয়, নইলে বাংলা শব্দ ভেঙে ছোট টুকরো হয়ে যেত
-    private val invisibleRe = Regex("[\\u200B\\u200C\\u200D\\u2060\\uFEFF\\u00AD]")
 
     // পুরো শব্দ হিসেবে মিললে ব্লক
     private val exact = setOf(
         "sex", "sexy", "xxx", "nsfw", "nude", "nudes", "nudity", "erotic", "erotica",
         "onlyfans", "camgirl", "camgirls", "chudai", "boobs", "blowjob", "handjob",
         "milf", "fetish", "bdsm", "orgy", "bluefilm", "sexvideo", "sexvideos", "sexchat",
-        "সেক্স", "সেক্সি", "নগ্ন", "ন্যুড", "চুদাচুদি", "ব্লুফিল্ম", "পর্ন", "পর্ণ"
+        "সেক্স", "সেক্সি", "নগ্ন", "ন্যুড", "চুদাচুদি", "ব্লুফিল্ম"
     )
 
-    // শব্দের শুরু মিললে ব্লক (শুধু সাইটের নাম ও স্পষ্ট রূপভেদ)
+    // শব্দের শুরু মিললে ব্লক (সাইটের নাম ও রূপভেদ ধরার জন্য, যেমন pornhub, pornography)
     private val prefixes = listOf(
         "porn", "xvideo", "xnxx", "xhamster", "redtube", "brazzers", "youporn",
-        "hentai", "onlyfans", "chudai", "camgirl", "পর্নো", "পর্ণো", "পর্নগ্রাফি", "পর্ণগ্রাফি"
+        "hentai", "onlyfans", "chudai", "camgirl", "পর্ন", "পর্ণ"
     )
 
-    // ইউজারের যোগ করা শব্দের পরে বসতে পারে এমন সাধারণ প্রত্যয় (শুধু ৩+ অক্ষরের শব্দে)
-    private val suffixes = setOf(
-        "টা", "টি", "টার", "টির", "গুলো", "গুলা", "গুলি", "খানা", "কে", "রে", "র", "ের", "এর",
-        "ে", "য়", "তে", "দের", "রা", "ও", "s", "es", "ed", "ing", "er", "ers"
+    // অতি-সাধারণ বাংলা/ইংরেজি শব্দ যা ভুলবশত ব্লক-তালিকায় যোগ হলে স্বাভাবিক লেখাও
+    // ব্লক হয়ে যায় (যেমন "পারে", "না", "আছে")। এই শব্দগুলো নিজের ব্লক-তালিকায়
+    // যোগ করতে দেওয়া হয় না।
+    private val commonWords = setOf(
+        "না", "হয়", "হবে", "হবো", "করে", "করি", "করব", "করবে", "পারে", "পারি",
+        "পারব", "পারবে", "আছে", "নেই", "থেকে", "সাথে", "দিয়ে", "নিয়ে", "কিন্তু",
+        "এবং", "অথবা", "তাই", "যদি", "তবে", "এখন", "তখন", "আমি", "তুমি", "সে",
+        "আমরা", "তোমরা", "তারা", "এই", "ওই", "সেই", "যে", "কি", "কেন", "কীভাবে",
+        "the", "and", "for", "are", "but", "not", "you", "all", "can", "has",
+        "was", "were", "with", "that", "this", "from", "have", "will"
     )
 
-    private fun clean(text: String) = invisibleRe.replace(text.lowercase(), "")
+    fun isCommonWord(w: String): Boolean = plain(w).let { it.size == 1 && it[0] in commonWords }
 
     private fun plain(text: String): List<String> =
-        tokenRe.findAll(clean(text)).map { it.value }.toList()
+        tokenRe.findAll(text.lowercase()).map { it.value }.toList()
 
-    // "p o r n" ধরনের ফাঁক দিয়ে লেখা ধরতে ইংরেজি একক অক্ষরের সারি জোড়া লাগানো
-    // (বাংলা বাদ, কারণ ও/এ-র মতো এক অক্ষরের বাংলা শব্দ স্বাভাবিক)
+    // "p o r n" ধরনের ফাঁক দিয়ে লেখা ধরতে একক অক্ষরের সারি জোড়া লাগানো
     private fun tokens(text: String): List<String> {
         val base = plain(text)
         val extra = ArrayList<String>()
         val run = StringBuilder()
         var cnt = 0
         for (t in base + "") {
-            if (t.length == 1 && t[0] in 'a'..'z') {
+            if (t.length == 1) {
                 run.append(t); cnt++
             } else {
                 if (cnt >= 3) extra.add(run.toString())
@@ -67,29 +69,21 @@ object Guard {
         return false
     }
 
-    private fun userMatch(t: String, x: String): Boolean {
-        if (t == x) return true
-        if (x.length < 3 || !t.startsWith(x)) return false
-        return t.substring(x.length) in suffixes
-    }
-
-    /** কোন শব্দ ধরা পড়ল সেটা ফেরত দেয়; খারাপ কিছু না পেলে null */
-    fun findBad(c: Context, text: String): String? {
-        if (text.isBlank()) return null
+    fun isBad(c: Context, text: String): Boolean {
+        if (text.isBlank()) return false
         val tk = tokens(text)
-        if (tk.isEmpty()) return null
-        tk.firstOrNull { it in exact }?.let { return it }
-        tk.firstOrNull { t -> prefixes.any { t.startsWith(it) } }?.let { return it }
+        if (tk.isEmpty()) return false
+        if (tk.any { it in exact }) return true
+        if (tk.any { t -> prefixes.any { t.startsWith(it) } }) return true
+        // ইউজারের নিজের যোগ করা শব্দ: পুরো শব্দ মিললে (৫+ অক্ষরের হলে শুরু মিললেও)
         for (w in Prefs.words(c)) {
             val wt = plain(w)
             if (wt.isEmpty()) continue
             if (wt.size == 1) {
                 val x = wt[0]
-                tk.firstOrNull { userMatch(it, x) }?.let { return it }
-            } else if (containsSeq(tk, wt)) return w
+                if (tk.any { it == x || (x.length >= 5 && it.startsWith(x)) }) return true
+            } else if (containsSeq(tk, wt)) return true
         }
-        return null
+        return false
     }
-
-    fun isBad(c: Context, text: String): Boolean = findBad(c, text) != null
 }

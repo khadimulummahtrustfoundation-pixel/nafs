@@ -180,17 +180,21 @@ class MainActivity : Activity() {
                 refreshLater()
             })
         }
+
         root.addView(setup)
 
         // ---- শব্দ তালিকা ----
         val wc = Ui.card(c)
         wc.addView(Ui.text(c, "নিজের ব্লক শব্দ", 17f, true))
-        wc.addView(Ui.text(c, "পুরো শব্দ মিললে ব্লক হবে। শব্দের রূপভেদও ধরতে চাইলে শেষে * দিন (যেমন: জুয়া*)।", 12f))
         val input = Ui.edit(c, "শব্দ লিখুন")
         wc.addView(input)
         wc.addView(Ui.button(c, "শব্দ যোগ করুন") {
             val w = input.text.toString().trim()
-            if (w.count { it.isLetter() } < 3) { toast("কমপক্ষে ৩টি অক্ষর দিন"); return@button }
+            if (w.length < 3) { toast("কমপক্ষে ৩ অক্ষর দিন (খুব ছোট শব্দ দিলে ভুলভাবে সাধারণ শব্দও ব্লক হয়ে যেতে পারে)"); return@button }
+            if (Guard.isCommonWord(w)) {
+                toast("এটি খুবই সাধারণ একটি শব্দ, এটা যোগ করলে স্বাভাবিক লেখাও ব্লক হয়ে যাবে, তাই যোগ করা গেল না")
+                return@button
+            }
             Prefs.addWord(c, w); build()
         })
         for (w in Prefs.words(c).sorted()) {
