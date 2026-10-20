@@ -59,7 +59,10 @@ class LoginActivity : Activity() {
                     last10(p) == last10(Prefs.phone(c)) && w == Prefs.pass(c)
                 runOnUiThread {
                     if (r.ok || offlineOk) {
-                        if (r.ok) Prefs.setLogin(c, p, w, r.name.ifEmpty { Prefs.name(c) })
+                        if (r.ok) {
+                            Prefs.setLogin(c, p, w, r.name.ifEmpty { Prefs.name(c) })
+                            Prefs.setUnlock(c, r.unlock)
+                        }
                         Session.unlocked = true
                         startActivity(Intent(c, MainActivity::class.java)); finish()
                     } else {

@@ -39,9 +39,10 @@ object Prefs {
         sp(c).edit().putLong("lock", System.currentTimeMillis() + LOCK_MS).apply()
     fun clearLock(c: Context) = sp(c).edit().putLong("lock", 0L).apply()
 
-    fun dnsAuto(c: Context) = sp(c).getBoolean("dnsauto", false)
-    fun setDnsAuto(c: Context, v: Boolean) = sp(c).edit().putBoolean("dnsauto", v).apply()
-
     fun safe(c: Context) = sp(c).getBoolean("safe", false)
     fun setSafe(c: Context, v: Boolean) = sp(c).edit().putBoolean("safe", v).apply()
+
+    // অ্যাডমিন Google Sheet-এ UnlockAccess ON করেছে কিনা (সার্ভার থেকে সর্বশেষ জানা মান)
+    fun unlockOk(c: Context) = sp(c).getBoolean("unlock", false)
+    fun setUnlock(c: Context, v: Boolean) = sp(c).edit().putBoolean("unlock", v).apply()
 }

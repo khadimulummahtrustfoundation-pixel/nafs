@@ -9,12 +9,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
-import android.os.PowerManager
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -34,22 +35,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // সেটিংসে গিয়ে ৩ মিনিটের বেশি দেরি করলে সেশন শেষ
-        if (Session.keepUntil != 0L && System.currentTimeMillis() > Session.keepUntil) {
-            Session.unlocked = false
-        }
-        Session.keepUntil = 0L
+        Session.keep = false
         // প্রতিবার অ্যাপে ঢোকার সময় লগইন লাগবে
         if (!Prefs.loggedIn(this) || !Session.unlocked) { goLogin(); return }
         build()
         recheck()
         ensureSafe()
+        if (Prefs.locked(this)) Owner.applyLock(this)
     }
 
     override fun onStop() {
         super.onStop()
         // অ্যাপ থেকে বের হলে সেশন শেষ (সেটিংস স্ক্রিনে যাওয়ার সময় বাদে)
-        if (System.currentTimeMillis() > Session.keepUntil) Session.unlocked = false
+        if (!Session.keep) Session.unlocked = false
     }
 
     private fun goLogin() {
@@ -57,8 +55,8 @@ class MainActivity : Activity() {
     }
 
     private fun openExternal(i: Intent) {
-        Session.keepFor()
-        try { startActivity(i) } catch (e: Exception) { Session.keepUntil = 0L }
+        Session.keep = true
+        try { startActivity(i) } catch (e: Exception) { Session.keep = false }
     }
 
     private fun stopEverything() {
@@ -66,7 +64,6 @@ class MainActivity : Activity() {
         Prefs.setSafe(this, false)
         try { DnsVpnService.stop(this) } catch (e: Exception) {}
         Session.unlocked = false
-        Session.keepUntil = 0L
     }
 
     // সার্ভারে এক্সেস বন্ধ/মেয়াদ শেষ হলে লগআউট (লক থাকলে হবে না)
@@ -74,6 +71,11 @@ class MainActivity : Activity() {
         val c = this
         Thread {
             val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            if (r.ok) {
+                val old = Prefs.unlockOk(c)
+                Prefs.setUnlock(c, r.unlock)
+                if (old != r.unlock) runOnUiThread { if (!isFinishing && Session.unlocked) build() }
+            }
             if (!r.ok && !r.net && !Prefs.locked(c)) {
                 runOnUiThread {
                     stopEverything()
@@ -84,7 +86,6 @@ class MainActivity : Activity() {
     }
 
     private fun ensureSafe() {
-        if (Prefs.dnsAuto(this) && !PrivateDns.isOn(this)) PrivateDns.apply(this)
         if (Prefs.safe(this) && !DnsVpnService.active && VpnService.prepare(this) == null) {
             try { DnsVpnService.start(this) } catch (e: Exception) {}
             refreshLater()
@@ -103,53 +104,13 @@ class MainActivity : Activity() {
             s.contains("$packageName/.GuardService", true)
     }
 
-    // সেইফ সার্চ: অনুমতি থাকলে Private DNS অটো সেট; না থাকলে সহজ গাইড
+    // সেইফ সার্চ: VPN অনুমতি নিয়ে এক ক্লিকে চালু
     private fun enableSafe() {
-        if (PrivateDns.apply(this)) {
-            Prefs.setDnsAuto(this, true)
-            toast("✅ সেইফ সার্চ অটো সেট হয়েছে")
-            build()
-            return
-        }
-        enableVpnMode()
-    }
-
-    private fun showDnsHelp() {
-        val msg = "নিচের বাটন চাপলে নামটি কপি হবে ও সেটিংস খুলবে।\n\n" +
-            "সেখানে Private DNS → 'Private DNS provider hostname' বেছে পেস্ট করে Save দিন।"
-        AlertDialog.Builder(this)
-            .setTitle("সেইফ সার্চ সেট করুন")
-            .setMessage(msg)
-            .setPositiveButton("কপি করে সেটিংস খুলুন") { _, _ ->
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("dns", PrivateDns.HOST))
-                toast("কপি হয়েছে: ${PrivateDns.HOST}")
-                Session.keepFor()
-                PrivateDns.openSettings(this)
-            }
-            .setNegativeButton("বাতিল", null)
-            .show()
-    }
-
-    private fun disableSafe() {
-        Prefs.setSafe(this, false)
-        Prefs.setDnsAuto(this, false)
-        try { DnsVpnService.stop(this) } catch (e: Exception) {}
-        if (PrivateDns.isOn(this) && !PrivateDns.off(this)) {
-            Session.keepFor()
-            PrivateDns.openSettings(this)
-        }
-        build()
-        refreshLater()
-    }
-
-    // বিকল্প: VPN দিয়ে DNS ফিল্টার
-    private fun enableVpnMode() {
         val i = VpnService.prepare(this)
         if (i != null) {
-            Session.keepFor()
+            Session.keep = true
             try { startActivityForResult(i, REQ_VPN) }
-            catch (e: Exception) { Session.keepUntil = 0L; toast("VPN চালু করা যাচ্ছে না") }
+            catch (e: Exception) { Session.keep = false; toast("VPN চালু করা যাচ্ছে না") }
         } else startSafe()
     }
 
@@ -165,18 +126,6 @@ class MainActivity : Activity() {
         Prefs.setSafe(this, true)
         DnsVpnService.start(this)
         refreshLater()
-        askBattery()
-    }
-
-    // ফোন (Xiaomi/Samsung ইত্যাদি) ব্যাকগ্রাউন্ডে VPN বন্ধ করে দেওয়া ঠেকাতে
-    private fun askBattery() {
-        try {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                openExternal(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                    .setData(Uri.parse("package:$packageName")))
-            }
-        } catch (e: Exception) {}
     }
 
     private fun build() {
@@ -213,20 +162,25 @@ class MainActivity : Activity() {
                 })
             })
         }
-        val dnsOn = PrivateDns.isOn(c)
-        val vpnOn = DnsVpnService.active
-        val safe = dnsOn || vpnOn
-        setup.addView(Ui.text(c, when {
-            dnsOn -> "✅ সেইফ সার্চ চালু (Private DNS)"
-            vpnOn -> "✅ সেইফ সার্চ চালু (VPN)"
-            else -> "❌ সেইফ সার্চ বন্ধ"
-        }))
+        val battOk = (getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
+        setup.addView(Ui.text(c, if (battOk) "✅ ব্যাটারি সেভার থেকে মুক্ত" else "⚠️ ব্যাটারি সেভার গার্ড বন্ধ করে দিতে পারে"))
+        if (!battOk) {
+            setup.addView(Ui.button(c, "ব্যাটারি সেভার থেকে বাদ দিন") {
+                openExternal(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName")))
+            })
+        }
+        val safe = DnsVpnService.active
+        setup.addView(Ui.text(c, if (safe) "✅ সেইফ সার্চ চালু" else "❌ সেইফ সার্চ বন্ধ"))
         if (!safe) {
-            setup.addView(Ui.text(c, "বাটন চাপলে একবার VPN অনুমতি চাইবে, OK দিন। এটা শুধু নিরাপদ DNS-এর জন্য, নেটের স্পিড বদলায় না।", 13f))
+            setup.addView(Ui.text(c, "বাটন চাপলে Android একবার VPN অনুমতি চাইবে, OK দিন। এটা শুধু নিরাপদ DNS-এর জন্য, আপনার ইন্টারনেট স্পিড বা ডেটা বদলায় না।", 13f))
             setup.addView(Ui.button(c, "সেইফ সার্চ অন করুন") { enableSafe() })
-            setup.addView(Ui.link(c, "অথবা Private DNS ম্যানুয়ালি সেট করুন") { showDnsHelp() })
         } else if (!locked) {
-            setup.addView(Ui.button(c, "সেইফ সার্চ বন্ধ করুন") { disableSafe() })
+            setup.addView(Ui.button(c, "সেইফ সার্চ বন্ধ করুন") {
+                Prefs.setSafe(c, false)
+                DnsVpnService.stop(c)
+                refreshLater()
+            })
         }
         root.addView(setup)
 
@@ -252,29 +206,85 @@ class MainActivity : Activity() {
         // ---- লক ----
         val lc = Ui.card(c)
         lc.addView(Ui.text(c, "১ মাসের লক", 17f, true))
+        val isOwner = Owner.isOwner(c)
+        lc.addView(Ui.text(c, if (isOwner) "🛡️ Device Owner সক্রিয় (সবচেয়ে শক্ত লক)" else "Device Owner বন্ধ (সাধারণ লক)", 14f))
         if (locked) {
             val days = ((Prefs.lockUntil(c) - System.currentTimeMillis()) / 86_400_000L) + 1
             lc.addView(Ui.text(c, "🔒 লক চালু, বাকি প্রায় $days দিন। এই সময় আনইন্সটল, লগআউট ও গার্ড বন্ধ করা যাবে না।"))
+            val ok = Prefs.unlockOk(c)
+            lc.addView(Ui.button(c, if (isOwner) "Device Owner বন্ধ করুন" else "লক খুলুন") { requestUnlock() }.apply {
+                isEnabled = ok
+                if (!ok) background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#B0BEC5")); cornerRadius = Ui.dp(c, 12).toFloat()
+                }
+            })
+            if (!ok) lc.addView(Ui.text(c, "অ্যাডমিন Google Sheet-এ আপনার UnlockAccess ON করলে এই বাটন চালু হবে।", 13f))
         } else {
             lc.addView(Ui.button(c, "🔒 ১ মাসের জন্য লক করুন") {
                 if (!a11yOn() || !dpm.isAdminActive(admin)) {
                     toast("আগে গার্ড ও অ্যাডমিন চালু করুন"); return@button
                 }
+                val pmx = getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!pmx.isIgnoringBatteryOptimizations(packageName)) {
+                    toast("আগে ব্যাটারি সেভার থেকে NafsGuard বাদ দিন"); return@button
+                }
                 AlertDialog.Builder(c)
                     .setTitle("লক নিশ্চিত করুন")
-                    .setMessage("৩০ দিন আপনি অ্যাপ আনইন্সটল বা বন্ধ করতে পারবেন না। নিশ্চিত?")
-                    .setPositiveButton("লক করুন") { _, _ -> Prefs.startLock(c); build() }
+                    .setMessage("৩০ দিন আপনি অ্যাপ আনইন্সটল বা বন্ধ করতে পারবেন না। শুধু অ্যাডমিন শিটে অনুমতি দিলে খোলা যাবে। নিশ্চিত?")
+                    .setPositiveButton("লক করুন") { _, _ -> Prefs.startLock(c); Owner.applyLock(c); build() }
                     .setNegativeButton("বাতিল", null).show()
             })
-            if (adminOn) lc.addView(Ui.button(c, "অ্যাডমিন বন্ধ করুন (আনইন্সটলের জন্য)") {
+            if (isOwner) lc.addView(Ui.button(c, "Device Owner বন্ধ করুন") { releaseOwner() })
+            if (adminOn && !isOwner) lc.addView(Ui.button(c, "অ্যাডমিন বন্ধ করুন (আনইন্সটলের জন্য)") {
                 dpm.removeActiveAdmin(admin); Prefs.clearLock(c); build()
             })
             lc.addView(Ui.button(c, "লগআউট") { stopEverything(); goLogin() })
+        }
+        if (!isOwner) {
+            lc.addView(Ui.text(c, "আরও শক্ত লক (ঐচ্ছিক): কম্পিউটার থেকে একবার এই কমান্ড চালান। ফোনে Google/অন্য অ্যাকাউন্ট থাকলে আগে সরিয়ে নিন।", 13f))
+            lc.addView(Ui.text(c, OWNER_CMD, 12f))
+            lc.addView(Ui.button(c, "কমান্ড কপি করুন") {
+                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                    .setPrimaryClip(ClipData.newPlainText("cmd", OWNER_CMD))
+                toast("কপি হয়েছে")
+            })
         }
         root.addView(lc)
 
         setContentView(ScrollView(c).apply { setBackgroundColor(Color.WHITE); addView(root) })
     }
+
+    // বাটন চাপলে সার্ভার থেকে আবার যাচাই করে (পুরোনো সেভ করা মানের ওপর ভরসা করে না)
+    private fun requestUnlock() {
+        toast("যাচাই হচ্ছে...")
+        val c = this
+        Thread {
+            val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            runOnUiThread {
+                if (r.ok && r.unlock) doUnlock()
+                else {
+                    Prefs.setUnlock(c, false)
+                    toast(if (r.net) r.msg else "অ্যাডমিন এখনো অনুমতি দেননি")
+                    build()
+                }
+            }
+        }.start()
+    }
+
+    private fun doUnlock() {
+        if (!Owner.releaseAll(this)) { toast("Device Owner সরানো যায়নি"); return }
+        Prefs.clearLock(this)
+        Prefs.setUnlock(this, false)
+        toast("লক খোলা হয়েছে")
+        build()
+    }
+
+    private fun releaseOwner() {
+        if (Owner.releaseAll(this)) toast("Device Owner বন্ধ হয়েছে") else toast("Device Owner সরানো যায়নি")
+        build()
+    }
+
+    private val OWNER_CMD = "adb shell dpm set-device-owner com.NafsGuard.guard/.AdminReceiver"
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 }

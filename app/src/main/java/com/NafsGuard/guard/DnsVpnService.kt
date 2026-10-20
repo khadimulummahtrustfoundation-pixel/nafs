@@ -1,11 +1,6 @@
 package com.NafsGuard.guard
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.ServiceInfo
-import android.os.Build
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
@@ -32,12 +27,7 @@ class DnsVpnService : VpnService() {
         )
 
         fun start(c: Context) {
-            val i = Intent(c, DnsVpnService::class.java)
-            try {
-                if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
-            } catch (e: Exception) {
-                try { c.startService(i) } catch (e2: Exception) {}
-            }
+            c.startService(Intent(c, DnsVpnService::class.java))
         }
 
         fun stop(c: Context) {
@@ -51,38 +41,10 @@ class DnsVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") {
-            shutdown()
-            try { stopForeground(true) } catch (e: Exception) {}
-            stopSelf(); return START_NOT_STICKY
+            shutdown(); stopSelf(); return START_NOT_STICKY
         }
-        goForeground()
         startVpn()
         return START_STICKY
-    }
-
-    // ফোন ব্যাকগ্রাউন্ড অ্যাপ মেরে ফেললেও VPN যেন চালু থাকে
-    private fun goForeground() {
-        try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val b: Notification.Builder
-            if (Build.VERSION.SDK_INT >= 26) {
-                nm.createNotificationChannel(
-                    NotificationChannel("guard", "NafsGuard", NotificationManager.IMPORTANCE_MIN))
-                b = Notification.Builder(this, "guard")
-            } else {
-                b = Notification.Builder(this)
-            }
-            val n = b.setContentTitle("NafsGuard")
-                .setContentText("সেইফ সার্চ চালু আছে")
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setOngoing(true)
-                .build()
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else {
-                startForeground(1, n)
-            }
-        } catch (e: Exception) {}
     }
 
     private fun startVpn() {

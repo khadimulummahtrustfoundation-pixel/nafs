@@ -1,10 +1,11 @@
 package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
-import android.app.ActivityManager
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,66 +16,15 @@ import android.widget.Toast
 class GuardService : AccessibilityService() {
 
     private var last = 0L
+    private var lastToast = 0L
+    private var lastNag = 0L
+    private var lastBlock = 0L
+    private val handler = Handler(Looper.getMainLooper())
 
-    companion object {
-        @Volatile private var navUntil = 0L
-        @Volatile private var navClicks = 0
-        @Volatile private var navScrolls = 0
-        private val hopped = mutableSetOf<String>()
-
-        // Private DNS পেজে পৌঁছানোর জন্য ৪৫ সেকেন্ড অটো-নেভিগেশন চালু
-        fun startDnsNav() {
-            navUntil = System.currentTimeMillis() + 45_000L
-            navClicks = 0; navScrolls = 0; hopped.clear()
-        }
-    }
-
-    private val dnsWords = listOf("private dns", "প্রাইভেট ডিএনএস", "প্রাইভেট dns")
-    private val hostWords = listOf("hostname", "হোস্টনেম")
-    private val hopWords = listOf(
-        "more connection settings", "connection & sharing", "connections & sharing",
-        "advanced", "আরও সংযোগ সেটিংস", "উন্নত"
-    )
-
-    private fun firstNode(root: AccessibilityNodeInfo, w: String): AccessibilityNodeInfo? =
-        root.findAccessibilityNodeInfosByText(w).firstOrNull()
-
-    private fun clickUp(n: AccessibilityNodeInfo): Boolean {
-        var x: AccessibilityNodeInfo? = n
-        var i = 0
-        while (x != null && i < 6) {
-            if (x.isClickable) return x.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            x = x.parent; i++
-        }
-        return false
-    }
-
-    private fun scrollable(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        if (n.isScrollable) return n
-        for (i in 0 until n.childCount) {
-            val c = n.getChild(i) ?: continue
-            val r = scrollable(c)
-            if (r != null) return r
-        }
-        return null
-    }
-
-    // সেটিংসে "Private DNS" খুঁজে ক্লিক; হোস্টনেম অপশন দেখা গেলে থেমে যায় (পেস্ট ইউজার নিজে করবে)
-    private fun dnsAssist(root: AccessibilityNodeInfo) {
-        if (System.currentTimeMillis() > navUntil || navClicks >= 8) return
-        if (hostWords.any { firstNode(root, it) != null }) { navUntil = 0L; return }
-        for (w in dnsWords) {
-            val n = firstNode(root, w) ?: continue
-            if (clickUp(n)) { navClicks++; return }
-        }
-        for (w in hopWords) {
-            if (w in hopped) continue
-            val n = firstNode(root, w) ?: continue
-            if (clickUp(n)) { hopped.add(w); navClicks++; return }
-        }
-        if (navScrolls < 10) {
-            val s = scrollable(root)
-            if (s != null && s.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) navScrolls++
+    private val poll = object : Runnable {
+        override fun run() {
+            try { pollOnce() } catch (e: Exception) {}
+            handler.postDelayed(this, 600)
         }
     }
 
@@ -89,30 +39,91 @@ class GuardService : AccessibilityService() {
         "com.duckduckgo.mobile.android" to listOf("com.duckduckgo.mobile.android:id/omnibarTextInput")
     )
 
-    private val protectedPkgs = setOf(
-        "com.android.settings", "com.google.android.packageinstaller",
-        "com.android.packageinstaller", "com.samsung.android.packageinstaller"
+    // যেসব অ্যাপে NafsGuard-এর সেটিংস/আনইন্সটল পেজ খুলতে পারে
+    private val sensitiveParts = listOf(
+        "settings", "installer", "permissioncontroller", "launcher",
+        "securitycenter", "safecenter", "phonemaster", "appmanager"
     )
+    // ক্লিক ধরার জন্য (লঞ্চার বাদ, নইলে হোম স্ক্রিনে অ্যাপ খুলতেই আটকাবে)
+    private val clickParts = listOf("settings", "installer", "securitycenter", "safecenter", "phonemaster", "appmanager")
 
-    // সেটআপের সময় এই অ্যাপগুলোতে গেলে সেশন থাকবে; অন্য কোথাও গেলে সেশন শেষ
-    private val tripPkgs = setOf(
-        "com.android.settings", "com.android.systemui", "com.android.vpndialogs",
-        "com.google.android.permissioncontroller", "com.android.permissioncontroller",
-        "com.google.android.packageinstaller", "com.android.packageinstaller",
-        "com.samsung.android.packageinstaller", "com.samsung.android.app.settings",
-        "com.miui.securitycenter", "com.miui.powerkeeper", "com.coloros.safecenter",
-        "com.huawei.systemmanager", "com.samsung.android.lool"
+    // NafsGuard-এর "বিস্তারিত" পেজ চেনার শব্দ (শুধু তালিকা পেজে এগুলো থাকে না)
+    private val detailWords = listOf(
+        "force stop", "uninstall", "deactivate", "clear data", "clear storage",
+        "use nafsguard", "stop nafsguard", "forget vpn", "disconnect",
+        "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        if (Prefs.loggedIn(this) && Prefs.dnsAuto(this) && !PrivateDns.isOn(this)) {
-            PrivateDns.apply(this)
-        }
         if (Prefs.loggedIn(this) && Prefs.safe(this) && !DnsVpnService.active &&
             VpnService.prepare(this) == null) {
             try { DnsVpnService.start(this) } catch (e: Exception) {}
         }
+        handler.removeCallbacks(poll)
+        handler.post(poll)
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        handler.removeCallbacksAndMessages(null)
+        return super.onUnbind(intent)
+    }
+
+    private fun pollOnce() {
+        if (!Prefs.loggedIn(this) || !Prefs.locked(this)) return
+        // লক চলাকালীন অ্যাডমিন বন্ধ হয়ে গেলে আবার চালুর অনুরোধ
+        val cn = ComponentName(this, AdminReceiver::class.java)
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val now = System.currentTimeMillis()
+        if (!dpm.isAdminActive(cn) && now - lastNag > 10000) {
+            lastNag = now
+            try {
+                startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            } catch (e: Exception) {}
+        }
+        val root = rootInActiveWindow ?: return
+        val pkg = root.packageName?.toString() ?: return
+        protect(pkg, root)
+    }
+
+    private fun has(root: AccessibilityNodeInfo, t: String): Boolean {
+        val l = root.findAccessibilityNodeInfosByText(t)
+        return l != null && l.isNotEmpty()
+    }
+
+    private fun block() {
+        val now = System.currentTimeMillis()
+        if (now - lastBlock < 1200) return
+        lastBlock = now
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        if (now - lastToast > 2500) {
+            lastToast = now
+            toast("🔒 লক চালু, NafsGuard-এর সেটিংস বদলানো যাবে না")
+        }
+    }
+
+    // শুধু NafsGuard-এর নিজের পেজ/ডায়ালগ খুললে পেছনে পাঠায়; অন্য সেটিংস স্বাভাবিক থাকে
+    private fun protect(pkg: String, root: AccessibilityNodeInfo): Boolean {
+        if (pkg == packageName || !Prefs.locked(this)) return false
+        val p = pkg.lowercase()
+        if (sensitiveParts.none { p.contains(it) }) return false
+        if (!has(root, "NafsGuard")) return false
+        // আনইন্সটল কনফার্ম ডায়ালগ: নামটি থাকলেই যথেষ্ট
+        val isInstaller = p.contains("installer")
+        if (!isInstaller && detailWords.none { has(root, it) }) return false
+        if (p.contains("launcher") && !has(root, "uninstall") && !has(root, "আনইন্সটল") && !has(root, "আনইনস্টল")) return false
+        block()
+        return true
+    }
+
+    private fun clickedOurName(e: AccessibilityEvent): Boolean {
+        val inText = e.text?.any { it?.toString()?.contains("NafsGuard", true) == true } == true
+        if (inText) return true
+        val src = e.source ?: return false
+        return has(src, "NafsGuard")
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
@@ -120,33 +131,30 @@ class GuardService : AccessibilityService() {
         val pkg = e.packageName?.toString() ?: return
         if (pkg == packageName) return
 
-        // সেটিংস থেকে Home/অন্য অ্যাপে গেলে অ্যাপের লগইন সেশন শেষ
-        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            Session.keepUntil != 0L && pkg !in tripPkgs) {
-            Session.unlocked = false
-            Session.keepUntil = 0L
+        when (e.eventType) {
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source); return }
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
+                val p = pkg.lowercase()
+                if (Prefs.locked(this) && clickParts.any { p.contains(it) } && clickedOurName(e)) {
+                    handler.postDelayed({ block() }, 450)
+                }
+                return
+            }
         }
 
-        if (e.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
-            checkInput(e, pkg)
-            return
-        }
+        val root = rootInActiveWindow ?: return
+        val rootPkg = root.packageName?.toString() ?: pkg
+        if (protect(rootPkg, root)) return
+
         val now = System.currentTimeMillis()
         if (now - last < 300) return
         last = now
-        val root = rootInActiveWindow ?: return
-        if (Prefs.locked(this) && pkg in protectedPkgs &&
-            root.findAccessibilityNodeInfosByText("NafsGuard").isNotEmpty()) {
-            performGlobalAction(GLOBAL_ACTION_HOME)
-            toast("লক চালু — NafsGuard সেটিংস বন্ধ")
-            return
-        }
-        if (pkg.contains("settings")) dnsAssist(root)
-        urlBars[pkg]?.forEach { id ->
+        urlBars[rootPkg]?.forEach { id ->
             root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
                 val t = n.text?.toString() ?: return@forEach
                 if (Guard.isBad(this, t)) {
-                    closeApp(pkg)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
                     toast("🚫 এই সাইট ব্লক করা হয়েছে")
                     return
                 }
@@ -154,46 +162,16 @@ class GuardService : AccessibilityService() {
         }
     }
 
-    private var lastKick = 0L
-
-    // আগে লেখা মুছে ফেলা; সেট-টেক্সট কাজ না করলে সব সিলেক্ট করে কাট
-    private fun clearField(n: AccessibilityNodeInfo, len: Int) {
-        val args = Bundle()
-        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
-        if (!n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-            val sel = Bundle()
-            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
-            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, len)
-            n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
-            n.performAction(AccessibilityNodeInfo.ACTION_CUT)
-        }
-    }
-
-    // লেখা মুছার পর অ্যাপ বন্ধ: আগে হোমে পাঠানো, তারপর ব্যাকগ্রাউন্ড প্রসেস কিল
-    // (আবার খুললে অ্যাপ নতুন করে শুরু হবে, সার্চ বক্স ফাঁকা থাকবে)
-    private fun closeApp(pkg: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastKick < 1500) return
-        lastKick = now
-        val h = Handler(Looper.getMainLooper())
-        h.postDelayed({ performGlobalAction(GLOBAL_ACTION_HOME) }, 250)
-        if (pkg == "com.android.systemui" || pkg == packageName) return
-        h.postDelayed({
-            try {
-                (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
-                    .killBackgroundProcesses(pkg)
-            } catch (e: Exception) {}
-        }, 1200)
-    }
-
-    private fun checkInput(e: AccessibilityEvent, pkg: String) {
-        val n = e.source ?: return
+    private fun checkInput(n: AccessibilityNodeInfo?) {
+        n ?: return
         if (n.isPassword) return
-        val t = n.text?.toString() ?: e.text.joinToString("")
-        if (!Guard.isBad(this, t)) return
-        clearField(n, t.length)
-        toast("🚫 নিষিদ্ধ শব্দ — লেখা মুছে ফেলা হয়েছে")
-        closeApp(pkg)
+        val t = n.text?.toString() ?: return
+        if (Guard.isBad(this, t)) {
+            val args = Bundle()
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            toast("🚫 নিষিদ্ধ শব্দ, লেখা মুছে ফেলা হয়েছে")
+        }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()

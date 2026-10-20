@@ -12,7 +12,8 @@ object Api {
     data class Res(
         val ok: Boolean, val msg: String,
         val name: String = "", val days: Int = 0,
-        val net: Boolean = false, val approved: Boolean = false
+        val net: Boolean = false, val approved: Boolean = false,
+        val unlock: Boolean = false
     )
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
@@ -31,7 +32,7 @@ object Api {
         return try {
             val j = JSONObject(body)
             Res(j.optBoolean("ok"), j.optString("msg"), j.optString("name"),
-                j.optInt("daysLeft"), approved = j.optBoolean("approved"))
+                j.optInt("daysLeft"), approved = j.optBoolean("approved"), unlock = j.optBoolean("unlock"))
         } catch (e: Exception) {
             Res(false, "সার্ভার সঠিক উত্তর দেয়নি। Apps Script নতুন কোড দিয়ে Deploy (Anyone) করা হয়েছে কিনা দেখুন।", net = true)
         }
