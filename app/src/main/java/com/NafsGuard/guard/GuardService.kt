@@ -1,16 +1,27 @@
 package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Toast
 
 class GuardService : AccessibilityService() {
@@ -19,6 +30,9 @@ class GuardService : AccessibilityService() {
     private var lastToast = 0L
     private var lastNag = 0L
     private var lastBlock = 0L
+    private var overlay: View? = null
+    private var lastWinPkg = ""
+    private var lastWinClass = ""
     private val handler = Handler(Looper.getMainLooper())
 
     private val poll = object : Runnable {
@@ -47,12 +61,14 @@ class GuardService : AccessibilityService() {
     // ক্লিক ধরার জন্য (লঞ্চার বাদ, নইলে হোম স্ক্রিনে অ্যাপ খুলতেই আটকাবে)
     private val clickParts = listOf("settings", "installer", "securitycenter", "safecenter", "phonemaster", "appmanager")
 
-    // NafsGuard-এর "বিস্তারিত" পেজ চেনার শব্দ (শুধু তালিকা পেজে এগুলো থাকে না)
+    // NafsGuard-এর "বিস্তারিত" পেজ চেনার শব্দ
     private val detailWords = listOf(
         "force stop", "uninstall", "deactivate", "clear data", "clear storage",
         "use nafsguard", "stop nafsguard", "forget vpn", "disconnect",
         "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
+    // ডিভাইস অ্যাডমিন পেজ চেনার শব্দ (অ্যাডমিন চালু থাকলে এগুলোতেও আটকাবে)
+    private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -66,26 +82,32 @@ class GuardService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         handler.removeCallbacksAndMessages(null)
+        removeOverlay()
         return super.onUnbind(intent)
+    }
+
+    private fun adminActive(): Boolean {
+        val cn = ComponentName(this, AdminReceiver::class.java)
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(cn)
     }
 
     private fun pollOnce() {
         if (!Prefs.loggedIn(this) || !Prefs.locked(this)) return
-        // লক চলাকালীন অ্যাডমিন বন্ধ হয়ে গেলে আবার চালুর অনুরোধ
-        val cn = ComponentName(this, AdminReceiver::class.java)
-        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val now = System.currentTimeMillis()
-        if (!dpm.isAdminActive(cn) && now - lastNag > 10000) {
+        // লক চলাকালীন অ্যাডমিন বন্ধ হয়ে গেলে আবার চালুর অনুরোধ
+        if (!adminActive() && now - lastNag > 4000) {
             lastNag = now
             try {
                 startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn)
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(this@GuardService, AdminReceiver::class.java))
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 })
             } catch (e: Exception) {}
         }
         val root = rootInActiveWindow ?: return
         val pkg = root.packageName?.toString() ?: return
+        if (deviceAdminGuard(root)) return
         protect(pkg, root)
     }
 
@@ -105,15 +127,38 @@ class GuardService : AccessibilityService() {
         }
     }
 
+    // ডিভাইস অ্যাডমিন পেজ: ভাষা যা-ই হোক, স্ক্রিনের ক্লাস নাম দেখে চেনা হয়
+    private fun deviceAdminGuard(root: AccessibilityNodeInfo): Boolean {
+        if (!Prefs.locked(this)) return false
+        if (!lastWinPkg.lowercase().contains("settings")) return false
+        if (!lastWinClass.lowercase().contains("deviceadmin")) return false
+        if (root.packageName?.toString() != lastWinPkg) return false
+        if (!has(root, "NafsGuard")) return false
+        if (adminActive()) {
+            block()      // অ্যাডমিন চালু: বন্ধ করার পেজ খুলতে দেবে না
+            return true
+        }
+        // অ্যাডমিন বন্ধ হয়ে গেছে: অ্যাক্টিভেশন পেজে নিজে থেকে "Activate" চেপে দেওয়া
+        val btns = root.findAccessibilityNodeInfosByViewId("com.android.settings:id/action_button")
+        if (btns != null && btns.isNotEmpty()) {
+            btns[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            return true
+        }
+        return false
+    }
+
     // শুধু NafsGuard-এর নিজের পেজ/ডায়ালগ খুললে পেছনে পাঠায়; অন্য সেটিংস স্বাভাবিক থাকে
     private fun protect(pkg: String, root: AccessibilityNodeInfo): Boolean {
         if (pkg == packageName || !Prefs.locked(this)) return false
         val p = pkg.lowercase()
         if (sensitiveParts.none { p.contains(it) }) return false
         if (!has(root, "NafsGuard")) return false
-        // আনইন্সটল কনফার্ম ডায়ালগ: নামটি থাকলেই যথেষ্ট
         val isInstaller = p.contains("installer")
-        if (!isInstaller && detailWords.none { has(root, it) }) return false
+        if (!isInstaller) {
+            val hit = detailWords.any { has(root, it) } ||
+                (adminActive() && adminWords.any { has(root, it) })
+            if (!hit) return false
+        }
         if (p.contains("launcher") && !has(root, "uninstall") && !has(root, "আনইন্সটল") && !has(root, "আনইনস্টল")) return false
         block()
         return true
@@ -129,10 +174,18 @@ class GuardService : AccessibilityService() {
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (!Prefs.loggedIn(this)) return
         val pkg = e.packageName?.toString() ?: return
+
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val cls = e.className?.toString() ?: ""
+            if (cls.isNotEmpty() && !cls.startsWith("android")) {
+                lastWinPkg = pkg
+                lastWinClass = cls
+            }
+        }
         if (pkg == packageName) return
 
         when (e.eventType) {
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source); return }
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
                 // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
                 val p = pkg.lowercase()
@@ -145,6 +198,7 @@ class GuardService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: pkg
+        if (deviceAdminGuard(root)) return
         if (protect(rootPkg, root)) return
 
         val now = System.currentTimeMillis()
@@ -154,15 +208,15 @@ class GuardService : AccessibilityService() {
             root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
                 val t = n.text?.toString() ?: return@forEach
                 if (Guard.isBad(this, t)) {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                    toast("🚫 এই সাইট ব্লক করা হয়েছে")
+                    showWarning(rootPkg)
                     return
                 }
             }
         }
     }
 
-    private fun checkInput(n: AccessibilityNodeInfo?) {
+    // খারাপ শব্দ লিখলে আগে লেখা মুছে ফেলা, তারপর সতর্কবার্তা
+    private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
         if (n.isPassword) return
         val t = n.text?.toString() ?: return
@@ -170,7 +224,80 @@ class GuardService : AccessibilityService() {
             val args = Bundle()
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
             n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-            toast("🚫 নিষিদ্ধ শব্দ, লেখা মুছে ফেলা হয়েছে")
+            showWarning(pkg)
+        }
+    }
+
+    // ---------- সতর্কবার্তা পপ-আপ (সব অ্যাপের ওপরে দেখায়) ----------
+    private fun showWarning(pkg: String) {
+        if (overlay != null) return
+        val c: Context = this
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val p = Ui.dp(c, 24); setPadding(p, p, p, p)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE); cornerRadius = Ui.dp(c, 20).toFloat()
+            }
+        }
+        card.addView(ImageView(c).apply {
+            setImageResource(android.R.drawable.ic_dialog_alert)
+            setColorFilter(Color.parseColor("#C62828"))
+            layoutParams = LinearLayout.LayoutParams(Ui.dp(c, 72), Ui.dp(c, 72))
+        })
+        card.addView(Ui.text(c, "আল্লাহকে ভয় করুন।", 22f, true, Color.parseColor("#C62828"))
+            .apply { gravity = Gravity.CENTER })
+        card.addView(Ui.text(c, "আপাতত ফোনটা রেখে একটু পানি খান বা হাঁটাচলা করুন।", 16f)
+            .apply { gravity = Gravity.CENTER })
+        card.addView(Ui.button(c, "বন্ধ করুন") { dismissWarning(pkg) })
+
+        val m = Ui.dp(c, 28)
+        val root = FrameLayout(c).apply {
+            setBackgroundColor(Color.parseColor("#B3000000"))
+            isClickable = true
+            addView(card, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER
+            ).apply { setMargins(m, 0, m, 0) })
+        }
+        val lp = WindowManager.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+        try {
+            wm.addView(root, lp)
+            overlay = root
+        } catch (e: Exception) {
+            toast("🚫 নিষিদ্ধ শব্দ, আল্লাহকে ভয় করুন")
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        }
+    }
+
+    private fun removeOverlay() {
+        val v = overlay ?: return
+        overlay = null
+        try { (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v) } catch (e: Exception) {}
+    }
+
+    private fun canKill(pkg: String): Boolean {
+        val p = pkg.lowercase()
+        return pkg != packageName && pkg != "android" && !p.contains("launcher") &&
+            !p.contains("systemui") && !p.contains("inputmethod") && !p.contains("settings")
+    }
+
+    // "বন্ধ করুন": অ্যাপ মিনিমাইজ করে ব্যাকগ্রাউন্ড থেকেও বন্ধ করে দেয়, আবার নতুন করে খুলতে হবে
+    private fun dismissWarning(pkg: String) {
+        removeOverlay()
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        if (canKill(pkg)) {
+            handler.postDelayed({
+                try {
+                    (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).killBackgroundProcesses(pkg)
+                } catch (e: Exception) {}
+            }, 800)
         }
     }
 
