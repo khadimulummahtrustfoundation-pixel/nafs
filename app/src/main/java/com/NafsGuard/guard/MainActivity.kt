@@ -3,8 +3,6 @@ package com.NafsGuard.guard
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -218,7 +216,6 @@ class MainActivity : Activity() {
                     setColor(Color.parseColor("#B0BEC5")); cornerRadius = Ui.dp(c, 12).toFloat()
                 }
             })
-            if (!ok) lc.addView(Ui.text(c, "অ্যাডমিন Google Sheet-এ আপনার UnlockAccess ON করলে এই বাটন চালু হবে।", 13f))
         } else {
             lc.addView(Ui.button(c, "🔒 ১ মাসের জন্য লক করুন") {
                 if (!a11yOn() || !dpm.isAdminActive(admin)) {
@@ -239,15 +236,6 @@ class MainActivity : Activity() {
                 dpm.removeActiveAdmin(admin); Prefs.clearLock(c); build()
             })
             lc.addView(Ui.button(c, "লগআউট") { stopEverything(); goLogin() })
-        }
-        if (!isOwner) {
-            lc.addView(Ui.text(c, "আরও শক্ত লক (ঐচ্ছিক): কম্পিউটার থেকে একবার এই কমান্ড চালান। ফোনে Google/অন্য অ্যাকাউন্ট থাকলে আগে সরিয়ে নিন।", 13f))
-            lc.addView(Ui.text(c, OWNER_CMD, 12f))
-            lc.addView(Ui.button(c, "কমান্ড কপি করুন") {
-                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                    .setPrimaryClip(ClipData.newPlainText("cmd", OWNER_CMD))
-                toast("কপি হয়েছে")
-            })
         }
         root.addView(lc)
 
@@ -283,8 +271,6 @@ class MainActivity : Activity() {
         if (Owner.releaseAll(this)) toast("Device Owner বন্ধ হয়েছে") else toast("Device Owner সরানো যায়নি")
         build()
     }
-
-    private val OWNER_CMD = "adb shell dpm set-device-owner com.NafsGuard.guard/.AdminReceiver"
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 }
