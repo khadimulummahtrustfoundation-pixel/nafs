@@ -70,6 +70,11 @@ class GuardService : AccessibilityService() {
     // ডিভাইস অ্যাডমিন পেজ চেনার শব্দ (অ্যাডমিন চালু থাকলে এগুলোতেও আটকাবে)
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
 
+    // লক চলাকালীন Private DNS পেজ খুলতে ক্লিক করলে পেছনে পাঠানোর শব্দ
+    private val dnsWords = listOf(
+        "private dns", "cleanbrowsing", "প্রাইভেট ডিএনএস", "প্রাইভেট dns", "ব্যক্তিগত dns", "ব্যক্তিগত ডিএনএস"
+    )
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         if (Prefs.loggedIn(this) && Prefs.safe(this) && !DnsVpnService.active &&
@@ -108,6 +113,7 @@ class GuardService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val pkg = root.packageName?.toString() ?: return
         if (deviceAdminGuard(root)) return
+        if (dnsGuard(pkg, root)) return
         protect(pkg, root)
     }
 
@@ -147,6 +153,18 @@ class GuardService : AccessibilityService() {
         return false
     }
 
+    // লক চলাকালীন Private DNS স্ক্রিন (যেভাবেই খোলা হোক - মেনু থেকে, কুইক সেটিংস থেকে,
+    // সার্চ করে) স্ক্রিনে এলেই সাথে সাথে পেছনে পাঠানো হয়। আগে শুধু "Private DNS" লেখা
+    // ক্লিক করলে ধরা হতো, তাই স্ক্রিনের ভেতরে সরাসরি "Off"/"Automatic" চাপলে আটকাতো না।
+    // এখন পুরো স্ক্রিনের লেখা দেখে ধরা হয়, তাই কোন বাটন চাপা হলো তাতে কিছু যায় আসে না।
+    private fun dnsGuard(pkg: String, root: AccessibilityNodeInfo): Boolean {
+        if (!Prefs.locked(this)) return false
+        if (!pkg.lowercase().contains("settings")) return false
+        if (dnsWords.none { has(root, it) }) return false
+        block()
+        return true
+    }
+
     // শুধু NafsGuard-এর নিজের পেজ/ডায়ালগ খুললে পেছনে পাঠায়; অন্য সেটিংস স্বাভাবিক থাকে
     private fun protect(pkg: String, root: AccessibilityNodeInfo): Boolean {
         if (pkg == packageName || !Prefs.locked(this)) return false
@@ -165,10 +183,11 @@ class GuardService : AccessibilityService() {
     }
 
     private fun clickedOurName(e: AccessibilityEvent): Boolean {
-        val inText = e.text?.any { it?.toString()?.contains("NafsGuard", true) == true } == true
-        if (inText) return true
+        val words = listOf("nafsguard") + dnsWords
+        val joined = (e.text ?: emptyList<CharSequence>()).joinToString(" ") { cs -> cs.toString().lowercase() }
+        if (words.any { joined.contains(it) }) return true
         val src = e.source ?: return false
-        return has(src, "NafsGuard")
+        return has(src, "NafsGuard") || dnsWords.any { has(src, it) }
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
@@ -199,6 +218,7 @@ class GuardService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: pkg
         if (deviceAdminGuard(root)) return
+        if (dnsGuard(rootPkg, root)) return
         if (protect(rootPkg, root)) return
 
         val now = System.currentTimeMillis()
@@ -218,7 +238,7 @@ class GuardService : AccessibilityService() {
     // খারাপ শব্দ লিখলে আগে লেখা মুছে ফেলা, তারপর সতর্কবার্তা
     private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
-        if (n.isPassword) return
+        if (n.isPassword || !n.isEditable) return
         val t = n.text?.toString() ?: return
         if (Guard.isBad(this, t)) {
             val args = Bundle()
