@@ -30,6 +30,8 @@ object NudeDetector {
     private var env: OrtEnvironment? = null
     private var session: OrtSession? = null
     @Volatile private var failed = false
+    private var info = ""
+    fun hasFailed() = failed
 
     fun modelBundled(c: Context): Boolean = try {
         c.applicationContext.assets.list("models")?.contains("320n.onnx") == true
@@ -41,6 +43,7 @@ object NudeDetector {
         if (failed) return false
         return try {
             val bytes = c.applicationContext.assets.open(MODEL).use { it.readBytes() }
+            info = "size=" + bytes.size + " first=" + bytes.take(4).joinToString(" ") { String.format("%02X", it) }
             val e = OrtEnvironment.getEnvironment()
             val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
             session = e.createSession(bytes, opts)
@@ -49,7 +52,7 @@ object NudeDetector {
             true
         } catch (t: Throwable) {
             failed = true
-            Diag.model = "ব্যর্থ: " + t.javaClass.simpleName + " " + (t.message ?: "").take(80)
+            Diag.model = "ব্যর্থ: " + t.javaClass.simpleName + " [" + info + "]"
             false
         }
     }

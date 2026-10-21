@@ -2,6 +2,7 @@ package com.NafsGuard.guard
 
 /** পরীক্ষার জন্য: ছবি/লেখা পাহারা কেন কাজ করছে বা করছে না, সেটা হোমে দেখানোর তথ্য */
 object Diag {
+    @Volatile var show = false         // স্ট্যাটাস কার্ড দেখানো হবে কিনা (লোগোর নামে ৫ বার চাপলে)
     @Volatile var loopAt = 0L          // স্ক্যান লুপ সর্বশেষ কখন চলেছে
     @Volatile var pkg = ""             // সর্বশেষ দেখা (NafsGuard ছাড়া) অ্যাপ
     @Volatile var watched = false      // সেটা পাহারার তালিকায় আছে কিনা
