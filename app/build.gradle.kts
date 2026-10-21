@@ -50,7 +50,7 @@ tasks.register("downloadFonts") {
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn("downloadFonts") }
 
 dependencies {
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 }
 
 // NudeNet 320n মডেল (MIT লাইসেন্স) বিল্ডের সময় ডাউনলোড হয়ে APK এর ভেতরে ঢোকে
