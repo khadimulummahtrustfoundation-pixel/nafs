@@ -145,6 +145,8 @@ class MainActivity : Activity() {
             .setNegativeButton("বাতিল", null).show()
     }
 
+    private var taps = 0
+
     private fun build() {
         val c: Context = this
         val locked = Prefs.locked(c)
@@ -161,7 +163,10 @@ class MainActivity : Activity() {
 
         // ---- উপরের অংশ: লোগো + সুরক্ষার অবস্থা ----
         root.addView(Ui.heroLogo(c, 96))
-        root.addView(Ui.dtext(c, "NafsGuard", 24f, true, Ui.NEON).apply { gravity = android.view.Gravity.CENTER })
+        root.addView(Ui.dtext(c, "NafsGuard", 24f, true, Ui.NEON).apply {
+            gravity = android.view.Gravity.CENTER
+            setOnClickListener { if (++taps >= 5) { taps = 0; Diag.show = !Diag.show; build() } }   // লুকানো স্ট্যাটাস: ৫ বার চাপুন
+        })
         root.addView(Ui.dtext(c, if (allOk) "🛡️ আপনি সুরক্ষিত আছেন" else "⚠️ সুরক্ষা সম্পূর্ণ হয়নি", 20f, true,
             if (allOk) Ui.TXT else Ui.AMBER).apply { gravity = android.view.Gravity.CENTER })
         root.addView(Ui.dtext(c,
@@ -211,6 +216,7 @@ class MainActivity : Activity() {
             when {
                 Build.VERSION.SDK_INT < 30 -> "Android 11 বা তার উপরে লাগবে"
                 !imgSupported -> "মডেল পাওয়া যায়নি (অ্যাপ নতুন করে বিল্ড করুন)"
+                NudeDetector.hasFailed() -> "ছবি চেনার মডেল চালু হয়নি, অ্যাপ আপডেট করুন"
                 else -> "ব্রাউজার, টেলিগ্রাম, টেরাবক্স ও হোয়াটসঅ্যাপে নগ্ন ছবি আটকায়"
             }, imgOn) {
             when {
@@ -223,7 +229,7 @@ class MainActivity : Activity() {
 
         // ---- পরীক্ষার স্ট্যাটাস (ছবি/লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
         val dc = Ui.dcard(c)
-        dc.addView(Ui.dtext(c, "🔧 পাহারার স্ট্যাটাস", 16f, true))
+        dc.addView(Ui.dtext(c, "🔧 পাহারার স্ট্যাটাস (শুধু পরীক্ষার জন্য)", 16f, true))
         val nowT = System.currentTimeMillis()
         fun ago(t: Long) = if (t == 0L) "কখনো না" else "${(nowT - t) / 1000} সেকেন্ড আগে"
         val lines = listOf(
@@ -238,7 +244,7 @@ class MainActivity : Activity() {
         )
         for (l in lines) dc.addView(Ui.dtext(c, l, 12.5f, false, Ui.TXT2))
         dc.addView(Ui.dlink(c, "স্ট্যাটাস রিফ্রেশ") { build() })
-        root.addView(dc)
+        if (Diag.show) root.addView(dc)
 
         // ---- শব্দ তালিকা ----
         val wc = Ui.dcard(c)
