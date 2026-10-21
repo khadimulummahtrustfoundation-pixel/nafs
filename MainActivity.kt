@@ -221,6 +221,25 @@ class MainActivity : Activity() {
         })
         root.addView(setup)
 
+        // ---- পরীক্ষার স্ট্যাটাস (ছবি/লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
+        val dc = Ui.dcard(c)
+        dc.addView(Ui.dtext(c, "🔧 পাহারার স্ট্যাটাস", 16f, true))
+        val nowT = System.currentTimeMillis()
+        fun ago(t: Long) = if (t == 0L) "কখনো না" else "${(nowT - t) / 1000} সেকেন্ড আগে"
+        val lines = listOf(
+            "Android: ${Build.VERSION.SDK_INT} (ছবি পাহারার জন্য ৩০+ লাগে)",
+            "সার্ভিস সর্বশেষ চলেছে: ${ago(Diag.loopAt)}",
+            "শেষ দেখা অ্যাপ: ${if (Diag.pkg.isEmpty()) "-" else Diag.pkg} (পাহারার তালিকায়: ${if (Diag.watched) "হ্যাঁ" else "না"})",
+            "পেজের লেখা: ${Diag.textNodes} অংশ, ${Diag.textChars} অক্ষর, খারাপ শব্দ ${Diag.textBad} টি (${ago(Diag.textAt)})",
+            "মডেল ফাইল: ${if (NudeDetector.modelBundled(c)) "আছে" else "নেই"}, অবস্থা: ${Diag.model}",
+            "স্ক্রিনশট: ${Diag.shot} (${ago(Diag.shotAt)})",
+            "শেষ ছবির স্কোর: ${if (Diag.score < 0) "-" else String.format("%.2f", Diag.score)}",
+            "স্ক্রিন-তথ্য না পাওয়া: ${Diag.rootNull} বার"
+        )
+        for (l in lines) dc.addView(Ui.dtext(c, l, 12.5f, false, Ui.TXT2))
+        dc.addView(Ui.dlink(c, "স্ট্যাটাস রিফ্রেশ") { build() })
+        root.addView(dc)
+
         // ---- শব্দ তালিকা ----
         val wc = Ui.dcard(c)
         wc.addView(Ui.dtext(c, "নিজের ব্লক শব্দ", 17f, true))

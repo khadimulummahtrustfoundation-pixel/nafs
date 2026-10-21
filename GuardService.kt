@@ -268,10 +268,13 @@ class GuardService : AccessibilityService() {
     // ---------- পেজের ছবি ও লেখা যাচাই ----------
     private fun scanOnce() {
         if (!Prefs.loggedIn(this) || overlay != null) return
+        Diag.loopAt = System.currentTimeMillis()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow
+        if (root == null) { Diag.rootNull++; return }
         val pkg = root.packageName?.toString() ?: return
+        if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = pkg in watchPkgs }
         if (pkg !in watchPkgs) return
         scanPageText(root, pkg)
         if (overlay != null) return
@@ -283,15 +286,19 @@ class GuardService : AccessibilityService() {
         count[0]++
         if (n.isVisibleToUser && !n.isPassword && !n.isEditable) {
             n.text?.let { sb.append(it).append('\n') }
+            n.contentDescription?.let { sb.append(it).append('\n') }
         }
         for (i in 0 until n.childCount) collectText(n.getChild(i), sb, depth + 1, count)
     }
 
-    // পেজে একাধিক (৩+) খারাপ শব্দ থাকলে সতর্কবার্তা (একটা শব্দে ভুল ব্লক এড়াতে)
+    // পেজে ২টি বা বেশি খারাপ শব্দ থাকলে সতর্কবার্তা (একটা শব্দে ভুল ব্লক এড়াতে)
     private fun scanPageText(root: AccessibilityNodeInfo, pkg: String) {
         val sb = StringBuilder()
-        collectText(root, sb, 0, intArrayOf(0))
-        if (Guard.badCount(this, sb.toString()) >= 3) showWarning(pkg)
+        val cnt = intArrayOf(0)
+        collectText(root, sb, 0, cnt)
+        val bad = Guard.badCount(this, sb.toString())
+        Diag.textNodes = cnt[0]; Diag.textChars = sb.length; Diag.textBad = bad; Diag.textAt = System.currentTimeMillis()
+        if (bad >= 2) showWarning(pkg)
     }
 
     private fun scanImage(pkg: String) {
@@ -301,6 +308,7 @@ class GuardService : AccessibilityService() {
             takeScreenshot(Display.DEFAULT_DISPLAY, bgExec, object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
                     var score = 0f
+                    Diag.shot = "ছবি পাওয়া গেছে"
                     try {
                         val hw = r.hardwareBuffer
                         val hb = Bitmap.wrapHardwareBuffer(hw, r.colorSpace)
@@ -310,12 +318,13 @@ class GuardService : AccessibilityService() {
                             if (NudeDetector.ready(this@GuardService)) score = NudeDetector.scan(bmp)
                             bmp.recycle()
                         }
-                    } catch (e: Throwable) {}
+                    } catch (e: Throwable) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName }
+                    Diag.score = score; Diag.shotAt = System.currentTimeMillis()
                     handler.post { scanning.set(false); onScore(score, pkg) }
                 }
-                override fun onFailure(errorCode: Int) { scanning.set(false) }
+                override fun onFailure(errorCode: Int) { Diag.shot = Diag.shotError(errorCode); Diag.shotAt = System.currentTimeMillis(); scanning.set(false) }
             })
-        } catch (e: Exception) { scanning.set(false) }
+        } catch (e: Exception) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName + " " + (e.message ?: "").take(60); scanning.set(false) }
     }
 
     private fun onScore(score: Float, pkg: String) {

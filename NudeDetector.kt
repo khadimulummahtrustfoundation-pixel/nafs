@@ -45,9 +45,11 @@ object NudeDetector {
             val opts = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
             session = e.createSession(bytes, opts)
             env = e
+            Diag.model = "লোড হয়েছে"
             true
         } catch (t: Throwable) {
             failed = true
+            Diag.model = "ব্যর্থ: " + t.javaClass.simpleName + " " + (t.message ?: "").take(80)
             false
         }
     }
@@ -87,7 +89,10 @@ object NudeDetector {
                     best(out)
                 }
             }
-        } catch (t: Throwable) { 0f }
+        } catch (t: Throwable) {
+            Diag.model = "স্ক্যান ত্রুটি: " + t.javaClass.simpleName + " " + (t.message ?: "").take(80)
+            0f
+        }
     }
 
     // আউটপুট: [22][N] (৪টি বক্স + ১৮ ক্লাস) অথবা উল্টো [N][22]
