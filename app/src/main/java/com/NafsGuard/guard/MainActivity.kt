@@ -209,37 +209,17 @@ class MainActivity : Activity() {
         if (!safe) setup.addView(Ui.dtext(c,
             "সুইচে চাপলে Android একবার VPN অনুমতি চাইবে, OK দিন। এটা শুধু নিরাপদ DNS-এর জন্য, আপনার ইন্টারনেট স্পিড বা ডেটা বদলায় না।",
             12.5f, false, Ui.TXT2))
-        setup.addView(Ui.divider(c))
-        val imgSupported = Build.VERSION.SDK_INT >= 30 && NudeDetector.modelBundled(c)
-        val imgOn = imgSupported && Prefs.imageGuard(c)
-        setup.addView(Ui.toggleRow(c, "🖼️", "ছবি পাহারা",
-            when {
-                Build.VERSION.SDK_INT < 30 -> "Android 11 বা তার উপরে লাগবে"
-                !imgSupported -> "মডেল পাওয়া যায়নি (অ্যাপ নতুন করে বিল্ড করুন)"
-                NudeDetector.hasFailed() -> "ছবি চেনার মডেল চালু হয়নি, অ্যাপ আপডেট করুন"
-                else -> "ব্রাউজার, টেলিগ্রাম, টেরাবক্স ও হোয়াটসঅ্যাপে নগ্ন ছবি আটকায়"
-            }, imgOn) {
-            when {
-                !imgSupported -> toast("এই ফোনে বা এই বিল্ডে ছবি পাহারা চালু করা যাচ্ছে না")
-                imgOn && locked -> toast("লক চালু থাকায় ছবি পাহারা বন্ধ করা যাবে না")
-                else -> { Prefs.setImageGuard(c, !imgOn); build() }
-            }
-        })
         root.addView(setup)
 
-        // ---- পরীক্ষার স্ট্যাটাস (ছবি/লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
+        // ---- পরীক্ষার স্ট্যাটাস (লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
         val dc = Ui.dcard(c)
         dc.addView(Ui.dtext(c, "🔧 পাহারার স্ট্যাটাস (শুধু পরীক্ষার জন্য)", 16f, true))
         val nowT = System.currentTimeMillis()
         fun ago(t: Long) = if (t == 0L) "কখনো না" else "${(nowT - t) / 1000} সেকেন্ড আগে"
         val lines = listOf(
-            "Android: ${Build.VERSION.SDK_INT} (ছবি পাহারার জন্য ৩০+ লাগে)",
             "সার্ভিস সর্বশেষ চলেছে: ${ago(Diag.loopAt)}",
-            "শেষ দেখা অ্যাপ: ${if (Diag.pkg.isEmpty()) "-" else Diag.pkg} (পাহারার তালিকায়: ${if (Diag.watched) "হ্যাঁ" else "না"})",
+            "শেষ দেখা অ্যাপ: ${if (Diag.pkg.isEmpty()) "-" else Diag.pkg} (পাহারা চলছে: ${if (Diag.watched) "হ্যাঁ" else "না"})",
             "পেজের লেখা: ${Diag.textNodes} অংশ, ${Diag.textChars} অক্ষর, খারাপ শব্দ ${Diag.textBad} টি (${ago(Diag.textAt)})",
-            "মডেল ফাইল: ${if (NudeDetector.modelBundled(c)) "আছে" else "নেই"}, অবস্থা: ${Diag.model}",
-            "স্ক্রিনশট: ${Diag.shot} (${ago(Diag.shotAt)})",
-            "শেষ ছবির স্কোর: ${if (Diag.score < 0) "-" else String.format("%.2f", Diag.score)}",
             "স্ক্রিন-তথ্য না পাওয়া: ${Diag.rootNull} বার"
         )
         for (l in lines) dc.addView(Ui.dtext(c, l, 12.5f, false, Ui.TXT2))

@@ -6,17 +6,14 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -27,8 +24,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
 class GuardService : AccessibilityService() {
 
@@ -59,19 +54,13 @@ class GuardService : AccessibilityService() {
         "com.duckduckgo.mobile.android" to listOf("com.duckduckgo.mobile.android:id/omnibarTextInput")
     )
 
-    // ---- ছবি ও পেজের লেখা পাহারা: শুধু এই অ্যাপগুলোতে চলে (ফেসবুক/ইউটিউবে নয়) ----
-    private val watchPkgs: Set<String> = urlBars.keys + setOf(
-        "com.android.browser", "com.UCMobile.intl", "com.uc.browser.en", "mark.via.gp",
-        "com.kiwibrowser.browser", "com.vivaldi.browser", "com.mi.globalbrowser",
-        "org.telegram.messenger", "org.telegram.messenger.web", "org.telegram.plus",
-        "org.thunderdog.challegram",
-        "com.dubox.drive",
-        "com.whatsapp", "com.whatsapp.w4b"
-    )
-    private val bgExec = Executors.newSingleThreadExecutor()
-    private val scanning = AtomicBoolean(false)
-    private var imgHits = 0
-    private var imgHitAt = 0L
+    // ---- পেজের লেখা পাহারা: যেকোনো অ্যাপে চলে (শুধু নিচের সিস্টেম অংশগুলো বাদ) ----
+    private fun shouldScan(pkg: String): Boolean {
+        if (pkg == packageName || pkg == "android") return false
+        val p = pkg.lowercase()
+        return !(p.contains("systemui") || p.contains("launcher") ||
+            p.contains("inputmethod") || p.contains("keyboard"))
+    }
 
     private val scanLoop = object : Runnable {
         override fun run() {
@@ -105,7 +94,6 @@ class GuardService : AccessibilityService() {
         }
         handler.removeCallbacks(poll)
         handler.post(poll)
-        bgExec.execute { NudeDetector.ready(this) }   // মডেল আগে থেকে লোড
         handler.removeCallbacks(scanLoop)
         handler.postDelayed(scanLoop, 3000)
     }
@@ -265,7 +253,7 @@ class GuardService : AccessibilityService() {
         }
     }
 
-    // ---------- পেজের ছবি ও লেখা যাচাই ----------
+    // ---------- পেজের লেখা যাচাই ----------
     private fun scanOnce() {
         if (!Prefs.loggedIn(this) || overlay != null) return
         Diag.loopAt = System.currentTimeMillis()
@@ -274,11 +262,9 @@ class GuardService : AccessibilityService() {
         val root = rootInActiveWindow
         if (root == null) { Diag.rootNull++; return }
         val pkg = root.packageName?.toString() ?: return
-        if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = pkg in watchPkgs }
-        if (pkg !in watchPkgs) return
+        if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = shouldScan(pkg) }
+        if (!shouldScan(pkg)) return
         scanPageText(root, pkg)
-        if (overlay != null) return
-        if (Build.VERSION.SDK_INT >= 30 && Prefs.imageGuard(this)) scanImage(pkg)
     }
 
     private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int, count: IntArray) {
@@ -299,45 +285,6 @@ class GuardService : AccessibilityService() {
         val bad = Guard.badCount(this, sb.toString())
         Diag.textNodes = cnt[0]; Diag.textChars = sb.length; Diag.textBad = bad; Diag.textAt = System.currentTimeMillis()
         if (bad >= 2) showWarning(pkg)
-    }
-
-    private fun scanImage(pkg: String) {
-        if (!NudeDetector.modelBundled(this)) return
-        if (!scanning.compareAndSet(false, true)) return
-        try {
-            takeScreenshot(Display.DEFAULT_DISPLAY, bgExec, object : AccessibilityService.TakeScreenshotCallback {
-                override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
-                    var score = 0f
-                    Diag.shot = "ছবি পাওয়া গেছে"
-                    try {
-                        val hw = r.hardwareBuffer
-                        val hb = Bitmap.wrapHardwareBuffer(hw, r.colorSpace)
-                        val bmp = hb?.copy(Bitmap.Config.ARGB_8888, false)
-                        hw.close(); hb?.recycle()
-                        if (bmp != null) {
-                            if (NudeDetector.ready(this@GuardService)) score = NudeDetector.scan(bmp)
-                            bmp.recycle()
-                        }
-                    } catch (e: Throwable) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName }
-                    Diag.score = score; Diag.shotAt = System.currentTimeMillis()
-                    handler.post { scanning.set(false); onScore(score, pkg) }
-                }
-                override fun onFailure(errorCode: Int) { Diag.shot = Diag.shotError(errorCode); Diag.shotAt = System.currentTimeMillis(); scanning.set(false) }
-            })
-        } catch (e: Exception) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName + " " + (e.message ?: "").take(60); scanning.set(false) }
-    }
-
-    private fun onScore(score: Float, pkg: String) {
-        if (overlay != null) return
-        val now = System.currentTimeMillis()
-        when {
-            score >= NudeDetector.STRONG -> { imgHits = 0; showWarning(pkg) }
-            score >= NudeDetector.MEDIUM -> {
-                imgHits = if (now - imgHitAt < 8000) imgHits + 1 else 1
-                imgHitAt = now
-                if (imgHits >= 2) { imgHits = 0; showWarning(pkg) }
-            }
-        }
     }
 
     // ---------- সতর্কবার্তা পপ-আপ (সব অ্যাপের ওপরে দেখায়) ----------
