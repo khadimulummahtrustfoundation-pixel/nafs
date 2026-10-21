@@ -6,13 +6,17 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +27,8 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class GuardService : AccessibilityService() {
 
@@ -53,6 +59,27 @@ class GuardService : AccessibilityService() {
         "com.duckduckgo.mobile.android" to listOf("com.duckduckgo.mobile.android:id/omnibarTextInput")
     )
 
+    // ---- ছবি ও পেজের লেখা পাহারা: শুধু এই অ্যাপগুলোতে চলে (ফেসবুক/ইউটিউবে নয়) ----
+    private val watchPkgs: Set<String> = urlBars.keys + setOf(
+        "com.android.browser", "com.UCMobile.intl", "com.uc.browser.en", "mark.via.gp",
+        "com.kiwibrowser.browser", "com.vivaldi.browser", "com.mi.globalbrowser",
+        "org.telegram.messenger", "org.telegram.messenger.web", "org.telegram.plus",
+        "org.thunderdog.challegram",
+        "com.dubox.drive",
+        "com.whatsapp", "com.whatsapp.w4b"
+    )
+    private val bgExec = Executors.newSingleThreadExecutor()
+    private val scanning = AtomicBoolean(false)
+    private var imgHits = 0
+    private var imgHitAt = 0L
+
+    private val scanLoop = object : Runnable {
+        override fun run() {
+            try { scanOnce() } catch (e: Exception) {}
+            handler.postDelayed(this, 1500)
+        }
+    }
+
     // যেসব অ্যাপে NafsGuard-এর সেটিংস/আনইন্সটল পেজ খুলতে পারে
     private val sensitiveParts = listOf(
         "settings", "installer", "permissioncontroller", "launcher",
@@ -78,6 +105,9 @@ class GuardService : AccessibilityService() {
         }
         handler.removeCallbacks(poll)
         handler.post(poll)
+        bgExec.execute { NudeDetector.ready(this) }   // মডেল আগে থেকে লোড
+        handler.removeCallbacks(scanLoop)
+        handler.postDelayed(scanLoop, 3000)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -216,16 +246,97 @@ class GuardService : AccessibilityService() {
         }
     }
 
-    // খারাপ শব্দ লিখলে আগে লেখা মুছে ফেলা, তারপর সতর্কবার্তা
+    // খারাপ শব্দ লিখলে শুধু সেই শব্দটুকু মুছে বাকি লেখা রেখে দেওয়া, তারপর সতর্কবার্তা
     private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
         if (n.isPassword || !n.isEditable) return
         val t = n.text?.toString() ?: return
         if (Guard.isBad(this, t)) {
+            var clean = Guard.removeBad(this, t)
+            if (Guard.isBad(this, clean)) clean = ""      // নিরাপত্তা: তবুও থেকে গেলে পুরোটা মুছবে
             val args = Bundle()
-            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, clean)
             n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val sel = Bundle()
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, clean.length)
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, clean.length)
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
             showWarning(pkg)
+        }
+    }
+
+    // ---------- পেজের ছবি ও লেখা যাচাই ----------
+    private fun scanOnce() {
+        if (!Prefs.loggedIn(this) || overlay != null) return
+        Diag.loopAt = System.currentTimeMillis()
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!pm.isInteractive) return
+        val root = rootInActiveWindow
+        if (root == null) { Diag.rootNull++; return }
+        val pkg = root.packageName?.toString() ?: return
+        if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = pkg in watchPkgs }
+        if (pkg !in watchPkgs) return
+        scanPageText(root, pkg)
+        if (overlay != null) return
+        if (Build.VERSION.SDK_INT >= 30 && Prefs.imageGuard(this)) scanImage(pkg)
+    }
+
+    private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int, count: IntArray) {
+        if (n == null || count[0] > 700 || depth > 40) return
+        count[0]++
+        if (n.isVisibleToUser && !n.isPassword && !n.isEditable) {
+            n.text?.let { sb.append(it).append('\n') }
+            n.contentDescription?.let { sb.append(it).append('\n') }
+        }
+        for (i in 0 until n.childCount) collectText(n.getChild(i), sb, depth + 1, count)
+    }
+
+    // পেজে ২টি বা বেশি খারাপ শব্দ থাকলে সতর্কবার্তা (একটা শব্দে ভুল ব্লক এড়াতে)
+    private fun scanPageText(root: AccessibilityNodeInfo, pkg: String) {
+        val sb = StringBuilder()
+        val cnt = intArrayOf(0)
+        collectText(root, sb, 0, cnt)
+        val bad = Guard.badCount(this, sb.toString())
+        Diag.textNodes = cnt[0]; Diag.textChars = sb.length; Diag.textBad = bad; Diag.textAt = System.currentTimeMillis()
+        if (bad >= 2) showWarning(pkg)
+    }
+
+    private fun scanImage(pkg: String) {
+        if (!NudeDetector.modelBundled(this)) return
+        if (!scanning.compareAndSet(false, true)) return
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, bgExec, object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
+                    var score = 0f
+                    Diag.shot = "ছবি পাওয়া গেছে"
+                    try {
+                        val hw = r.hardwareBuffer
+                        val hb = Bitmap.wrapHardwareBuffer(hw, r.colorSpace)
+                        val bmp = hb?.copy(Bitmap.Config.ARGB_8888, false)
+                        hw.close(); hb?.recycle()
+                        if (bmp != null) {
+                            if (NudeDetector.ready(this@GuardService)) score = NudeDetector.scan(bmp)
+                            bmp.recycle()
+                        }
+                    } catch (e: Throwable) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName }
+                    Diag.score = score; Diag.shotAt = System.currentTimeMillis()
+                    handler.post { scanning.set(false); onScore(score, pkg) }
+                }
+                override fun onFailure(errorCode: Int) { Diag.shot = Diag.shotError(errorCode); Diag.shotAt = System.currentTimeMillis(); scanning.set(false) }
+            })
+        } catch (e: Exception) { Diag.shot = "ত্রুটি: " + e.javaClass.simpleName + " " + (e.message ?: "").take(60); scanning.set(false) }
+    }
+
+    private fun onScore(score: Float, pkg: String) {
+        if (overlay != null) return
+        val now = System.currentTimeMillis()
+        when {
+            score >= NudeDetector.STRONG -> { imgHits = 0; showWarning(pkg) }
+            score >= NudeDetector.MEDIUM -> {
+                imgHits = if (now - imgHitAt < 8000) imgHits + 1 else 1
+                imgHitAt = now
+                if (imgHits >= 2) { imgHits = 0; showWarning(pkg) }
+            }
         }
     }
 

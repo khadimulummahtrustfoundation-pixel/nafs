@@ -69,6 +69,85 @@ object Guard {
         return false
     }
 
+    private fun tokenBad(c: Context, t: String, custom: Set<String>): Boolean {
+        if (t in exact) return true
+        if (prefixes.any { t.startsWith(it) }) return true
+        for (w in custom) {
+            val wt = plain(w)
+            if (wt.size == 1) {
+                val x = wt[0]
+                if (t == x || (x.length >= 5 && t.startsWith(x))) return true
+            }
+        }
+        return false
+    }
+
+    /** পেজের লেখায় কতবার খারাপ শব্দ আছে (পেজ স্ক্যানের জন্য) */
+    fun badCount(c: Context, text: String): Int {
+        if (text.isBlank()) return 0
+        val tk = tokens(text)
+        if (tk.isEmpty()) return 0
+        val custom = Prefs.words(c)
+        var n = tk.count { tokenBad(c, it, custom) }
+        for (w in custom) {
+            val wt = plain(w)
+            if (wt.size > 1 && containsSeq(tk, wt)) n++
+        }
+        return n
+    }
+
+    /**
+     * টেক্সট বক্সের জন্য: পুরো লেখা না মুছে শুধু খারাপ শব্দ(গুলো) বাদ দিয়ে বাকি লেখা ফেরত দেয়।
+     * "p o r n" ধরনের ফাঁকা-অক্ষর এবং একাধিক শব্দের ব্লক-বাক্যও সরানো হয়।
+     */
+    fun removeBad(c: Context, text: String): String {
+        val ms = tokenRe.findAll(text).toList()
+        if (ms.isEmpty()) return text
+        val custom = Prefs.words(c)
+        val del = BooleanArray(ms.size)
+
+        for (i in ms.indices) if (tokenBad(c, ms[i].value.lowercase(), custom)) del[i] = true
+
+        // একাধিক শব্দের ব্লক-বাক্য
+        for (w in custom) {
+            val wt = plain(w)
+            if (wt.size < 2) continue
+            for (i in 0..(ms.size - wt.size)) {
+                var ok = true
+                for (j in wt.indices) if (ms[i + j].value.lowercase() != wt[j]) { ok = false; break }
+                if (ok) for (j in wt.indices) del[i + j] = true
+            }
+        }
+
+        // ফাঁক দিয়ে লেখা একক অক্ষরের সারি (যেমন "p o r n")
+        var i = 0
+        while (i < ms.size) {
+            if (ms[i].value.length == 1) {
+                var j = i
+                while (j + 1 < ms.size && ms[j + 1].value.length == 1 &&
+                    text.substring(ms[j].range.last + 1, ms[j + 1].range.first).isBlank()) j++
+                if (j - i + 1 >= 3) {
+                    val joined = (i..j).joinToString("") { ms[it].value.lowercase() }
+                    if (tokenBad(c, joined, custom)) for (k in i..j) del[k] = true
+                }
+                i = j + 1
+            } else i++
+        }
+
+        if (del.none { it }) return text
+        val sb = StringBuilder()
+        var pos = 0
+        for (k in ms.indices) {
+            if (!del[k]) continue
+            sb.append(text, pos, ms[k].range.first)
+            pos = ms[k].range.last + 1
+            // শব্দ সরানোর পর দুই ফাঁক পাশাপাশি হলে একটা বাদ
+            if (sb.isNotEmpty() && sb.last().isWhitespace() && pos < text.length && text[pos].isWhitespace()) pos++
+        }
+        sb.append(text, pos, text.length)
+        return sb.toString()
+    }
+
     fun isBad(c: Context, text: String): Boolean {
         if (text.isBlank()) return false
         val tk = tokens(text)

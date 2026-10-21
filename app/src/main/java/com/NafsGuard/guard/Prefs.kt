@@ -45,4 +45,8 @@ object Prefs {
     // অ্যাডমিন Google Sheet-এ UnlockAccess ON করেছে কিনা (সার্ভার থেকে সর্বশেষ জানা মান)
     fun unlockOk(c: Context) = sp(c).getBoolean("unlock", false)
     fun setUnlock(c: Context, v: Boolean) = sp(c).edit().putBoolean("unlock", v).apply()
+
+    // ছবি পাহারা (ডিফল্ট চালু)
+    fun imageGuard(c: Context) = sp(c).getBoolean("imgguard", true)
+    fun setImageGuard(c: Context, v: Boolean) = sp(c).edit().putBoolean("imgguard", v).apply()
 }
