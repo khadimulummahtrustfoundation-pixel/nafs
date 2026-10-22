@@ -83,10 +83,12 @@ class DnsVpnService : VpnService() {
         val input = FileInputStream(pfd.fileDescriptor)
         val output = FileOutputStream(pfd.fileDescriptor)
         val buf = ByteArray(32767)
-        try {
-            while (running) {
+        var errs = 0
+        while (running) {
+            try {
                 val n = input.read(buf)
                 if (n < 0) break
+                errs = 0
                 if (n < 28) continue
                 if (((buf[0].toInt() shr 4) and 0x0F) != 4) continue
                 val ihl = (buf[0].toInt() and 0x0F) * 4
@@ -102,9 +104,15 @@ class DnsVpnService : VpnService() {
                 val query = buf.copyOfRange(ihl + 8, end)
                 val clientIp = buf.copyOfRange(12, 16)
                 pool.execute { resolve(query, clientIp, srcPort, output) }
+            } catch (e: Exception) {
+                // একটা ভুলে পুরো VPN বন্ধ না করে আবার চেষ্টা; বারবার ভুল হলে বন্ধ করে দিলে GuardService আবার চালু করবে
+                if (!running) break
+                errs++
+                if (errs > 20) break
+                try { Thread.sleep(50) } catch (x: Exception) {}
             }
-        } catch (e: Exception) {
         }
+        if (running) { shutdown(); try { stopSelf() } catch (e: Exception) {} }
     }
 
     private fun resolve(query: ByteArray, clientIp: ByteArray, clientPort: Int, out: FileOutputStream) {
