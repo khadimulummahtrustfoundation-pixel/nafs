@@ -16,4 +16,11 @@ object Diag {
     @Volatile var reelAt = 0L
     @Volatile var reelWin = ""         // Facebook/Instagram-এর সর্বশেষ স্ক্রিনের ক্লাস নাম
     @Volatile var reelDump = ""        // স্ক্রিনে দেখা id/লেখার নমুনা (সংকেত ঠিক করার জন্য)
+    @Volatile var lastBlock = "-"      // সর্বশেষ কোন সংকেতে ব্লক হয়েছিল
+    @Volatile var lastBlockAt = 0L
+    @Volatile var liteVideo = "-"      // Lite-এ সর্বশেষ দেখা video_view কতটা জায়গা জুড়ে ছিল
+    @Volatile var liteVideoAt = 0L
+    @Volatile var liteOcr = "-"        // Lite স্ক্রিনের ওপরের অংশে পড়া লেখা
+    @Volatile var liteOcrAt = 0L
+    @Volatile var liteErr = ""         // স্ক্রিনশট/লেখা-পড়ায় সমস্যা হলে কারণ
 }

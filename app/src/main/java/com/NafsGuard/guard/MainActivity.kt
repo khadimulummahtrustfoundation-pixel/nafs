@@ -243,6 +243,9 @@ class MainActivity : Activity() {
             "পেজের লেখা: ${Diag.textNodes} অংশ, ${Diag.textChars} অক্ষর, খারাপ শব্দ ${Diag.textBad} টি (${ago(Diag.textAt)})",
             "স্ক্রিন-তথ্য না পাওয়া: ${Diag.rootNull} বার",
             "Reels পাহারা: ${if (Diag.reelPkg.isEmpty()) "-" else Diag.reelPkg}, সংকেত: ${Diag.reelHit} (${ago(Diag.reelAt)})",
+            "সর্বশেষ ব্লক: ${Diag.lastBlock} (${ago(Diag.lastBlockAt)})",
+            "Lite ভিডিও: ${Diag.liteVideo} (${ago(Diag.liteVideoAt)})",
+            "Lite লেখা: ${Diag.liteOcr} (${ago(Diag.liteOcrAt)}) ${Diag.liteErr}",
             "স্ক্রিনের ক্লাস: ${if (Diag.reelWin.isEmpty()) "-" else Diag.reelWin}",
             "স্ক্রিনের নমুনা: ${if (Diag.reelDump.isEmpty()) "-" else Diag.reelDump}"
         )
