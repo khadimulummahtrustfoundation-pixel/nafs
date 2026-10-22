@@ -65,6 +65,11 @@ class GuardService : AccessibilityService() {
     // ফিডের Reels কার্ডে ক্লিক করলে কিছুক্ষণ "খোলার অপেক্ষা" মোড: এর মধ্যে নতুন স্ক্রিন খুললে পেছনে পাঠানো হবে
     private var reelIntentUntil = 0L
     private var ocrPkg = ""
+    // ভিডিও-দেখার পেজ (নিচে "UP NEXT" বার থাকে): এখানে ঢোকা যাবে, কিন্তু ওপরে/নিচে স্ক্রল করলে (পরের ভিডিও/রিলস এলে) পেছনে পাঠানো হবে
+    private var videoModeUntil = 0L
+    private var videoSince = 0L
+    private var upNextName = ""
+    private var changeSeen = 0
     private var lastWeakAt = 0L
 
     private val poll = object : Runnable {
@@ -258,6 +263,19 @@ class GuardService : AccessibilityService() {
 
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val tn = System.currentTimeMillis()
+                if (pkg in fbPkgs && Prefs.fbReel(this) && tn < videoModeUntil && tn - videoSince > 1200) {
+                    val dy = if (Build.VERSION.SDK_INT >= 28) Math.abs(e.scrollDeltaY) else 100
+                    if (dy >= 40 || (e.fromIndex >= 0 && e.toIndex >= 0 && e.fromIndex != e.toIndex)) {
+                        videoModeUntil = 0L; changeSeen = 0; upNextName = ""
+                        Diag.reelPkg = pkg; Diag.reelHit = "video-scroll"; Diag.reelAt = tn
+                        Diag.lastBlock = pkg.substringAfterLast('.') + " video-scroll"; Diag.lastBlockAt = tn
+                        blockReels(tn)
+                    }
+                }
+                return
+            }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
                 if (reelEnabled(pkg) && clickedReel(e.source)) {
                     reelIntentUntil = System.currentTimeMillis() + 2500
@@ -541,17 +559,37 @@ class GuardService : AccessibilityService() {
         var found = false
         var foundTop = -1
         val topLines = ArrayList<String>()
+        var upNext: String? = null
         for (b in t.textBlocks) for (ln in b.lines) {
             val box = ln.boundingBox ?: continue
             val txt = ln.text.trim().lowercase()
+            if (txt.startsWith("up next") && box.top > h * 55 / 100) upNext = txt
             if (box.top < h * 25 / 100 && topLines.size < 8) topLines.add(txt.take(14))
             // ওপরের বাঁ দিকে ছোট "Reels" শিরোনাম = Reels প্লেয়ার/পেজ
             if (txt in reelExact && box.top < h * 14 / 100 && box.left < w / 2 && box.width() < w / 2) {
                 found = true; foundTop = box.top
             }
         }
-        Diag.liteOcr = if (topLines.isEmpty()) "-" else topLines.joinToString("|")
+        Diag.liteOcr = (if (upNext != null) "[UPNEXT] " else "") + (if (topLines.isEmpty()) "-" else topLines.joinToString("|"))
         Diag.liteOcrAt = now
+        if (upNext != null) {
+            val nm = upNext.removePrefix("up next").trimStart(':', ' ').substringBefore('·').trim()
+            if (now >= videoModeUntil) { videoSince = now; upNextName = nm; changeSeen = 0 }
+            videoModeUntil = now + 1800
+            // "UP NEXT"-এর নাম বদলে গেলে = পরের ভিডিও/রিলস চলে এসেছে (স্ক্রল বা অটো-প্লে)
+            if (nm.length >= 3 && upNextName.length >= 3 && nm.take(5) != upNextName.take(5)) {
+                changeSeen++
+                if (changeSeen >= 2 && now - videoSince > 1500) {
+                    videoModeUntil = 0L; changeSeen = 0; upNextName = ""
+                    Diag.reelPkg = ocrPkg; Diag.reelHit = "video-changed"; Diag.reelAt = now
+                    Diag.lastBlock = ocrPkg.substringAfterLast('.') + " video-changed"; Diag.lastBlockAt = now
+                    blockReels(now)
+                    return
+                }
+            } else changeSeen = 0
+        } else {
+            videoModeUntil = 0L
+        }
         if (!found) { liteSeen = 0; return }
         // একই জায়গায় স্থির থাকলে তবেই (ফিড স্ক্রল করার সময় শিরোনাম সরে যায়)
         if (liteSeen > 0 && Math.abs(foundTop - liteLastTop) < h * 2 / 100) liteSeen++ else liteSeen = 1
