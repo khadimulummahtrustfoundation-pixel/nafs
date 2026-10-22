@@ -58,7 +58,7 @@ class GuardService : AccessibilityService() {
     private val igReelIds = listOf("clips", "reel")
     // মেসেজ/ইনবক্স স্ক্রিন চেনার id: এগুলো থাকলে Reels ভেবে ভুল ব্লক করবে না
     private val inboxIds = listOf("direct_inbox", "inbox_refreshable", "row_inbox", "inbox_container",
-        "direct_thread", "thread_list", "message_list", "row_thread", "messenger")
+        "direct_thread", "thread_list", "message_list", "row_thread")
     // ফিডের লিস্ট চেনার ক্লাস (ফিডের ভেতরের "Reels" শিরোনাম ব্লক করবে না)
     private val listClasses = listOf("recyclerview", "listview", "scrollview")
     private var weakHits = 0
@@ -104,8 +104,19 @@ class GuardService : AccessibilityService() {
     private val scanLoop = object : Runnable {
         override fun run() {
             try { scanOnce() } catch (e: Exception) {}
+            try { vpnWatch() } catch (e: Exception) {}
             handler.postDelayed(this, 1500)
         }
+    }
+
+    // সেইফ সার্চ চালু থাকলে VPN হঠাৎ বন্ধ হয়ে গেলে নিজে থেকে আবার চালু করে দেয়
+    private var lastVpnTry = 0L
+    private fun vpnWatch() {
+        if (!Prefs.loggedIn(this) || !Prefs.safe(this) || DnsVpnService.active) return
+        val now = System.currentTimeMillis()
+        if (now - lastVpnTry < 5000) return
+        lastVpnTry = now
+        if (VpnService.prepare(this) == null) DnsVpnService.start(this)
     }
 
     // যেসব অ্যাপে NafsGuard-এর সেটিংস/আনইন্সটল পেজ খুলতে পারে
@@ -286,13 +297,19 @@ class GuardService : AccessibilityService() {
                 return
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                if (pkg == fbMain && Prefs.fbReel(this) && clickedVideo(e.source)) {
-                    videoIntentUntil = System.currentTimeMillis() + 2500
-                    Diag.lastBlock = "katana video-click"; Diag.lastBlockAt = System.currentTimeMillis()
-                }
-                if (reelEnabled(pkg) && clickedReel(e.source)) {
-                    reelIntentUntil = System.currentTimeMillis() + 2500
-                    Diag.lastBlock = pkg.substringAfterLast('.') + " reel-click"; Diag.lastBlockAt = System.currentTimeMillis()
+                val csrc = e.source
+                if (csrc != null && clickExcluded(csrc)) {
+                    // স্টোরি / মেসেজ / মেসেঞ্জারে ক্লিক: কখনো আটকাবে না
+                    reelIntentUntil = 0L; videoIntentUntil = 0L
+                } else {
+                    if (pkg == fbMain && Prefs.fbReel(this) && clickedVideo(csrc)) {
+                        videoIntentUntil = System.currentTimeMillis() + 2500
+                        Diag.lastBlock = "katana video-click"; Diag.lastBlockAt = System.currentTimeMillis()
+                    }
+                    if (reelEnabled(pkg) && clickedReel(csrc)) {
+                        reelIntentUntil = System.currentTimeMillis() + 2500
+                        Diag.lastBlock = pkg.substringAfterLast('.') + " reel-click"; Diag.lastBlockAt = System.currentTimeMillis()
+                    }
                 }
                 // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
                 val p = pkg.lowercase()
@@ -409,11 +426,6 @@ class GuardService : AccessibilityService() {
                     isIg && igReelIds.any { idl.contains(it) }) {
                     hit = "big:" + idl.substringAfter(":id/")
                 }
-                // Facebook Lite: পুরো স্ক্রিন জোড়া খাড়া video_view = Reels প্লেয়ার (ফিডের ছোট ভিডিও নয়)
-                else if (isLite && bounds && idl.endsWith("video_view") &&
-                    rect.height() >= bigH && rect.height() > rect.width()) {
-                    hit = "lite:video_view"
-                }
                 else for (l in labels) {
                     if (l.length > 40) continue
                     // লেখা Reels দিয়েই শুরু হতে হবে ("sent a reel" ইত্যাদি ধরবে না)
@@ -514,6 +526,30 @@ class GuardService : AccessibilityService() {
         return false
     }
 
+    // ক্লিক করা অংশ কার্ডের মতো বড় কিনা (ট্যাব বারের মতো ছোট/চওড়া পাত্র হলে ভেতরের আইকন ধরা হবে না)
+    private fun bigClick(src: AccessibilityNodeInfo): Boolean {
+        val r = Rect()
+        src.getBoundsInScreen(r)
+        return r.height() >= resources.displayMetrics.heightPixels * 15 / 100
+    }
+
+    // স্টোরি/মেসেজ/মেসেঞ্জারের ক্লিক চেনা: ক্লিক করা অংশ বা তার ওপরের অংশের লেখায় এগুলো থাকলে কিছুই আটকাবে না
+    private val clickSkipWords = listOf("story", "stories", "স্টোরি", "messenger", "message", "মেসেজ", "মেসেঞ্জার", "chat", "inbox")
+    private fun clickExcluded(src: AccessibilityNodeInfo): Boolean {
+        var n: AccessibilityNodeInfo? = src
+        var i = 0
+        while (n != null && i < 6) {
+            val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+            val b = n.text?.toString()?.lowercase()?.trim() ?: ""
+            val idl = n.viewIdResourceName?.lowercase() ?: ""
+            for (l in listOf(a, b, idl)) {
+                if (l.isNotEmpty() && l.length <= 120 && clickSkipWords.any { l.contains(it) }) return true
+            }
+            n = n.parent; i++
+        }
+        return false
+    }
+
     private fun clickedVideo(src: AccessibilityNodeInfo?): Boolean {
         src ?: return false
         var n: AccessibilityNodeInfo? = src
@@ -522,6 +558,7 @@ class GuardService : AccessibilityService() {
             if (looksVideo(n)) return true
             n = n.parent; i++
         }
+        if (!bigClick(src)) return false
         fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
             if (x == null || d > 2) return false
             if (looksVideo(x)) return true
@@ -570,6 +607,7 @@ class GuardService : AccessibilityService() {
             if (labelIsReel(n)) return true
             n = n.parent; i++
         }
+        if (!bigClick(src)) return false
         fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
             if (x == null || d > 2) return false
             if (labelIsReel(x)) return true
