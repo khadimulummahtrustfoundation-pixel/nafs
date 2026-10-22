@@ -27,6 +27,11 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
+dependencies {
+    // Facebook Lite-এর স্ক্রিনে লেখা পড়ার জন্য (ফোনেই চলে, ইন্টারনেট লাগে না)
+    implementation("com.google.mlkit:text-recognition:16.0.0")
+}
+
 // Hind Siliguri ফন্ট বিল্ডের সময় ডাউনলোড হয়ে APK এর ভেতরে ঢুকে যায়
 val fontDir = File(projectDir, "src/main/assets/fonts")
 tasks.register("downloadFonts") {
