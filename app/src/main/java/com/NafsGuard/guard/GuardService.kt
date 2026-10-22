@@ -70,6 +70,9 @@ class GuardService : AccessibilityService() {
     private var videoSince = 0L
     private var upNextName = ""
     private var changeSeen = 0
+    // শুধু Facebook অ্যাপ: নিউজ ফিডের ভিডিও ফিডেই চলবে, কিন্তু ভিডিওতে ক্লিক করে খুললে পেছনে পাঠানো হবে
+    private var videoIntentUntil = 0L
+    private val fbMain = "com.facebook.katana"
     private var lastWeakAt = 0L
 
     private val poll = object : Runnable {
@@ -245,6 +248,12 @@ class GuardService : AccessibilityService() {
                     Diag.lastBlock = pkg.substringAfterLast('.') + " click+win:" + cls.substringAfterLast('.'); Diag.lastBlockAt = tw
                     blockReels(tw)
                 }
+                if (pkg == fbMain && Prefs.fbReel(this) && tw < videoIntentUntil && cls != prevCls) {
+                    videoIntentUntil = 0L
+                    Diag.reelPkg = pkg; Diag.reelHit = "video-open+win"; Diag.reelAt = tw
+                    Diag.lastBlock = "katana video-open+win:" + cls.substringAfterLast('.'); Diag.lastBlockAt = tw
+                    blockReels(tw)
+                }
                 if (reelEnabled(pkg)) {
                     val tNow = System.currentTimeMillis()
                     Diag.reelWin = cls
@@ -277,6 +286,10 @@ class GuardService : AccessibilityService() {
                 return
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                if (pkg == fbMain && Prefs.fbReel(this) && clickedVideo(e.source)) {
+                    videoIntentUntil = System.currentTimeMillis() + 2500
+                    Diag.lastBlock = "katana video-click"; Diag.lastBlockAt = System.currentTimeMillis()
+                }
                 if (reelEnabled(pkg) && clickedReel(e.source)) {
                     reelIntentUntil = System.currentTimeMillis() + 2500
                     Diag.lastBlock = pkg.substringAfterLast('.') + " reel-click"; Diag.lastBlockAt = System.currentTimeMillis()
@@ -459,6 +472,15 @@ class GuardService : AccessibilityService() {
         if (now - lastReelScan < 350) return false
         lastReelScan = now
 
+        // Facebook অ্যাপে ভিডিওতে ক্লিকের পর ফুল-স্ক্রিন ভিডিও পেজ খুলে গেলে পেছনে পাঠানো
+        if (pkg == fbMain && now < videoIntentUntil && fullscreenVideo(root)) {
+            videoIntentUntil = 0L
+            Diag.reelPkg = pkg; Diag.reelHit = "video-open"; Diag.reelAt = now
+            Diag.lastBlock = "katana video-open"; Diag.lastBlockAt = now
+            blockReels(now)
+            return true
+        }
+
         val hit = reelSignal(root, pkg)
         Diag.reelPkg = pkg; Diag.reelHit = hit ?: "-"; Diag.reelAt = now
         if (hit == null) {
@@ -476,6 +498,60 @@ class GuardService : AccessibilityService() {
         Diag.lastBlock = pkg.substringAfterLast('.') + " " + hit; Diag.lastBlockAt = now
         blockReels(now)
         return true
+    }
+
+    // ভিডিও চেনা: id/ক্লাস/লেখায় "video" আছে ("Video" ট্যাব বাদ)
+    private fun looksVideo(n: AccessibilityNodeInfo): Boolean {
+        val idl = n.viewIdResourceName?.lowercase() ?: ""
+        val cl = n.className?.toString()?.lowercase() ?: ""
+        if (idl.contains("video") || cl.contains("video")) return true
+        val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+        val b = n.text?.toString()?.lowercase()?.trim() ?: ""
+        for (l in listOf(a, b)) {
+            if (l.isNotEmpty() && l.length <= 100 && l.contains("video") &&
+                !l.contains("tab") && !l.contains("ট্যাব")) return true
+        }
+        return false
+    }
+
+    private fun clickedVideo(src: AccessibilityNodeInfo?): Boolean {
+        src ?: return false
+        var n: AccessibilityNodeInfo? = src
+        var i = 0
+        while (n != null && i < 6) {
+            if (looksVideo(n)) return true
+            n = n.parent; i++
+        }
+        fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
+            if (x == null || d > 2) return false
+            if (looksVideo(x)) return true
+            for (k in 0 until x.childCount) if (down(x.getChild(k), d + 1)) return true
+            return false
+        }
+        return down(src, 0)
+    }
+
+    // স্ক্রিনে বড় (প্রায় পুরো উচ্চতার) ভিডিও-প্লেয়ার আছে কিনা
+    private fun fullscreenVideo(root: AccessibilityNodeInfo): Boolean {
+        val h = resources.displayMetrics.heightPixels
+        val rect = Rect()
+        val cnt = intArrayOf(0)
+        var found = false
+        fun walk(n: AccessibilityNodeInfo?, d: Int) {
+            if (n == null || found || cnt[0] > 700 || d > 40) return
+            cnt[0]++
+            if (n.isVisibleToUser) {
+                val idl = n.viewIdResourceName?.lowercase() ?: ""
+                val cl = n.className?.toString()?.lowercase() ?: ""
+                if (idl.contains("video") || idl.contains("player") || cl.contains("video") || cl.contains("player")) {
+                    n.getBoundsInScreen(rect)
+                    if (rect.height() >= h * 68 / 100) { found = true; return }
+                }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), d + 1)
+        }
+        walk(root, 0)
+        return found
     }
 
     // ক্লিক করা অংশ বা তার ওপরের/ভেতরের লেখা "Reel..." দিয়ে শুরু হলে সেটা Reels কার্ড
