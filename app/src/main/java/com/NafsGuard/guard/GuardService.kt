@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.os.Build
 import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
 import android.os.Bundle
@@ -42,9 +44,13 @@ class GuardService : AccessibilityService() {
     private var lastReelToast = 0L
     private var reelStreak = 0
     private val fbPkgs = setOf("com.facebook.katana", "com.facebook.lite")
-    private val igPkgs = setOf("com.instagram.android")
+    private val igPkgs = setOf("com.instagram.android", "com.instagram.lite")
     // Reels ট্যাব/স্ক্রিন চেনার শব্দ (ইংরেজি ও বাংলা UI দুটোতেই)
-    private val reelWords = listOf("reel", "রিল")
+    private val reelWords = listOf("reel", "রিল", "রীল")
+    // স্ক্রিনের ওপরের অংশে ঠিক এই লেখা থাকলে Reels স্ক্রিন ধরা হয়
+    // Facebook-এর "Video" ট্যাব ব্লক করতে না চাইলে এই তালিকা খালি করুন: listOf()
+    private val fbTabWords = listOf("video", "ভিডিও")
+    private val reelExact = setOf("reels", "reel", "রিলস", "রিল", "রীলস", "রীল")
     // Instagram-এর Reels স্ক্রিনের ভেতরের id-র অংশ (অ্যাপ আপডেটে বদলাতে পারে, Diag দেখে ঠিক করা যাবে)
     private val igReelIds = listOf("clips_viewer")
 
@@ -211,6 +217,14 @@ class GuardService : AccessibilityService() {
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
                 lastWinPkg = pkg
                 lastWinClass = cls
+                if (reelEnabled(pkg)) {
+                    val tNow = System.currentTimeMillis()
+                    Diag.reelWin = cls
+                    if (cls.lowercase().contains("reel")) {
+                        Diag.reelPkg = pkg; Diag.reelHit = "win:" + cls.substringAfterLast('.'); Diag.reelAt = tNow
+                        blockReels(tNow)
+                    }
+                }
             }
         }
         if (pkg == packageName) return
@@ -273,27 +287,60 @@ class GuardService : AccessibilityService() {
         else -> false
     }
 
+    private fun isSelectedNode(n: AccessibilityNodeInfo): Boolean {
+        if (n.isSelected || n.isChecked) return true
+        try { if (n.collectionItemInfo?.isSelected == true) return true } catch (e: Exception) {}
+        if (Build.VERSION.SDK_INT >= 30) {
+            val sd = n.stateDescription?.toString()?.lowercase() ?: ""
+            if (sd.contains("selected") || sd.contains("নির্বাচিত")) return true
+        }
+        return false
+    }
+
     // স্ক্রিনে Reels আছে কিনা দেখে; পেলে কোন সংকেতে ধরল সেটা ফেরত দেয়, না পেলে null
     private fun reelSignal(root: AccessibilityNodeInfo, pkg: String): String? {
         val isIg = pkg in igPkgs
         val dump = if (Diag.show) LinkedHashSet<String>() else null
+        val topLimit = resources.displayMetrics.heightPixels * 18 / 100
+        val rect = Rect()
         var hit: String? = null
         val cnt = intArrayOf(0)
 
         fun walk(n: AccessibilityNodeInfo?, depth: Int) {
-            if (n == null || (hit != null && dump == null) || cnt[0] > 600 || depth > 35) return
+            if (n == null || (hit != null && dump == null) || cnt[0] > 700 || depth > 40) return
             cnt[0]++
             val id = n.viewIdResourceName ?: ""
-            val lbl = (n.contentDescription ?: n.text)?.toString()?.lowercase() ?: ""
-            if (hit == null) {
-                if (isIg && n.isVisibleToUser && igReelIds.any { id.contains(it) }) hit = "id:" + id.substringAfter(":id/")
-                else if (isIg && n.isSelected && id.endsWith("clips_tab")) hit = "tab:clips_tab"
-                else if (n.isSelected && lbl.isNotEmpty() && lbl.length < 40 && reelWords.any { lbl.contains(it) }) hit = "sel:$lbl"
+            val visible = n.isVisibleToUser
+            val labels = ArrayList<String>(3)
+            n.contentDescription?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
+            n.text?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
+            if (Build.VERSION.SDK_INT >= 28) {
+                n.paneTitle?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
             }
-            if (dump != null && dump.size < 24 && n.isVisibleToUser) {
+            val sel = isSelectedNode(n)
+
+            if (hit == null) {
+                if (isIg && visible && igReelIds.any { id.contains(it) }) hit = "id:" + id.substringAfter(":id/")
+                else if (isIg && sel && id.endsWith("clips_tab")) hit = "tab:clips_tab"
+                else for (l in labels) {
+                    if (l.length > 40) continue
+                    // Facebook-এ Reels এখন অনেক সময় "Video" ট্যাবের ভেতরে থাকে: "Video, tab 2 of 6" নির্বাচিত হলে ধরা হয়
+                    if (!isIg && pkg in fbPkgs && (sel || l.contains("selected")) && l.contains("tab") &&
+                        fbTabWords.any { l.contains(it) }) { hit = "fbtab:$l"; break }
+                    val hasReel = reelWords.any { l.contains(it) }
+                    if (!hasReel) continue
+                    // নির্বাচিত ট্যাব (লেখায় "selected" থাকলেও ধরা হয়)
+                    if (sel || l.contains("selected") || l.contains("নির্বাচিত")) { hit = "sel:$l"; break }
+                    // স্ক্রিনের ওপরের শিরোনামে ঠিক "Reels" লেখা
+                    if (visible && l in reelExact) {
+                        n.getBoundsInScreen(rect)
+                        if (rect.height() > 0 && rect.top < topLimit) { hit = "top:$l"; break }
+                    }
+                }
+            }
+            if (dump != null && dump.size < 36 && visible) {
                 val sid = id.substringAfter(":id/")
-                val s = (if (sid.isNotEmpty()) sid else "") + (if (lbl.isNotEmpty()) "[" + lbl.take(18) + "]" else "") +
-                    (if (n.isSelected) "*" else "")
+                val s = sid + (if (labels.isNotEmpty()) "[" + labels[0].take(18) + "]" else "") + (if (sel) "*" else "")
                 if (s.isNotEmpty()) dump.add(s)
             }
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
@@ -303,20 +350,9 @@ class GuardService : AccessibilityService() {
         return hit
     }
 
-    // Facebook/Instagram-এ Reels খুললে Back (বারবার ফিরে এলে হোম) এবং ছোট বার্তা
-    private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
-        if (!reelEnabled(pkg)) return false
-        val now = System.currentTimeMillis()
-        if (now - lastReelScan < 350) return false
-        lastReelScan = now
-
-        val hit = reelSignal(root, pkg)
-        Diag.reelPkg = pkg; Diag.reelHit = hit ?: "-"; Diag.reelAt = now
-        if (hit == null) {
-            if (now - lastReelBlock > 8000) reelStreak = 0
-            return false
-        }
-        if (now - lastReelBlock < 900) return true
+    // Back (বারবার ফিরে এলে হোম) এবং ছোট বার্তা
+    private fun blockReels(now: Long) {
+        if (now - lastReelBlock < 900) return
         lastReelBlock = now
         reelStreak++
         if (reelStreak >= 3) {
@@ -329,6 +365,22 @@ class GuardService : AccessibilityService() {
             lastReelToast = now
             toast("🚫 NafsGuard: Reels ব্লক করা আছে")
         }
+    }
+
+    // Facebook/Instagram (ও Lite)-এ Reels খুললে ব্লক
+    private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
+        if (!reelEnabled(pkg)) return false
+        val now = System.currentTimeMillis()
+        if (now - lastReelScan < 350) return false
+        lastReelScan = now
+
+        val hit = reelSignal(root, pkg)
+        Diag.reelPkg = pkg; Diag.reelHit = hit ?: "-"; Diag.reelAt = now
+        if (hit == null) {
+            if (now - lastReelBlock > 8000) reelStreak = 0
+            return false
+        }
+        blockReels(now)
         return true
     }
 

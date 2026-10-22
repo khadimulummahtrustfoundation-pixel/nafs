@@ -243,6 +243,7 @@ class MainActivity : Activity() {
             "পেজের লেখা: ${Diag.textNodes} অংশ, ${Diag.textChars} অক্ষর, খারাপ শব্দ ${Diag.textBad} টি (${ago(Diag.textAt)})",
             "স্ক্রিন-তথ্য না পাওয়া: ${Diag.rootNull} বার",
             "Reels পাহারা: ${if (Diag.reelPkg.isEmpty()) "-" else Diag.reelPkg}, সংকেত: ${Diag.reelHit} (${ago(Diag.reelAt)})",
+            "স্ক্রিনের ক্লাস: ${if (Diag.reelWin.isEmpty()) "-" else Diag.reelWin}",
             "স্ক্রিনের নমুনা: ${if (Diag.reelDump.isEmpty()) "-" else Diag.reelDump}"
         )
         for (l in lines) dc.addView(Ui.dtext(c, l, 12.5f, false, Ui.TXT2))

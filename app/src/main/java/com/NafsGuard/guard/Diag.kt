@@ -14,5 +14,6 @@ object Diag {
     @Volatile var reelPkg = ""         // Reels পাহারায় সর্বশেষ দেখা Facebook/Instagram অ্যাপ
     @Volatile var reelHit = "-"        // কোন সংকেত মিলে Reels ধরা পড়েছে
     @Volatile var reelAt = 0L
+    @Volatile var reelWin = ""         // Facebook/Instagram-এর সর্বশেষ স্ক্রিনের ক্লাস নাম
     @Volatile var reelDump = ""        // স্ক্রিনে দেখা id/লেখার নমুনা (সংকেত ঠিক করার জন্য)
 }
