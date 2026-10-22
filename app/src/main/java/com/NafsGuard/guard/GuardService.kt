@@ -55,13 +55,16 @@ class GuardService : AccessibilityService() {
     // স্ক্রিনের ওপরের শিরোনামে ঠিক এই লেখা থাকলে (এবং লিস্টের ভেতরে না হলে) Reels স্ক্রিন ধরা হয়
     private val reelExact = setOf("reels", "reel", "রিলস", "রিল", "রীলস", "রীল")
     // Instagram-এর Reels স্ক্রিনের ভেতরের id-র অংশ (বড় আকারে দেখা গেলে তবেই ধরা হয়)
-    private val igReelIds = listOf("clips_viewer")
+    private val igReelIds = listOf("clips", "reel")
     // মেসেজ/ইনবক্স স্ক্রিন চেনার id: এগুলো থাকলে Reels ভেবে ভুল ব্লক করবে না
     private val inboxIds = listOf("direct_inbox", "inbox_refreshable", "row_inbox", "inbox_container",
         "direct_thread", "thread_list", "message_list", "row_thread", "messenger")
-    // ফিডের লিস্ট চেনার ক্লাস (ফিডের ভেতরের \"Reels\" শিরোনাম ব্লক করবে না)
+    // ফিডের লিস্ট চেনার ক্লাস (ফিডের ভেতরের "Reels" শিরোনাম ব্লক করবে না)
     private val listClasses = listOf("recyclerview", "listview", "scrollview")
     private var weakHits = 0
+    // ফিডের Reels কার্ডে ক্লিক করলে কিছুক্ষণ "খোলার অপেক্ষা" মোড: এর মধ্যে নতুন স্ক্রিন খুললে পেছনে পাঠানো হবে
+    private var reelIntentUntil = 0L
+    private var ocrPkg = ""
     private var lastWeakAt = 0L
 
     private val poll = object : Runnable {
@@ -227,8 +230,16 @@ class GuardService : AccessibilityService() {
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val cls = e.className?.toString() ?: ""
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
+                val prevCls = lastWinClass
                 lastWinPkg = pkg
                 lastWinClass = cls
+                val tw = System.currentTimeMillis()
+                if (reelEnabled(pkg) && tw < reelIntentUntil && cls != prevCls) {
+                    reelIntentUntil = 0L
+                    Diag.reelPkg = pkg; Diag.reelHit = "click+win"; Diag.reelAt = tw
+                    Diag.lastBlock = pkg.substringAfterLast('.') + " click+win:" + cls.substringAfterLast('.'); Diag.lastBlockAt = tw
+                    blockReels(tw)
+                }
                 if (reelEnabled(pkg)) {
                     val tNow = System.currentTimeMillis()
                     Diag.reelWin = cls
@@ -248,6 +259,10 @@ class GuardService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                if (reelEnabled(pkg) && clickedReel(e.source)) {
+                    reelIntentUntil = System.currentTimeMillis() + 2500
+                    Diag.lastBlock = pkg.substringAfterLast('.') + " reel-click"; Diag.lastBlockAt = System.currentTimeMillis()
+                }
                 // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
                 val p = pkg.lowercase()
                 if (Prefs.locked(this) && clickParts.any { p.contains(it) } && clickedOurName(e)) {
@@ -373,7 +388,13 @@ class GuardService : AccessibilityService() {
                     // লেখা Reels দিয়েই শুরু হতে হবে ("sent a reel" ইত্যাদি ধরবে না)
                     if (reelWords.none { l.startsWith(it) }) continue
                     val selected = sel || l.contains("selected") || l.contains("নির্বাচিত")
-                    val tabLike = idl.contains("tab") || l.contains("tab") || l.contains("ট্যাব")
+                    var tabLike = idl.contains("tab") || l.contains("tab") || l.contains("ট্যাব")
+                    if (selected && !tabLike) {
+                        // Instagram Lite ইত্যাদিতে লেখায় "tab" থাকে না: নিচের/ওপরের ছোট বারের ভেতরে থাকলে ট্যাব ধরা হয়
+                        if (!bounds) { n.getBoundsInScreen(rect); bounds = true }
+                        tabLike = rect.height() in 1 until (h * 12 / 100) &&
+                            (rect.top > h * 80 / 100 || rect.bottom < h * 20 / 100)
+                    }
                     if (selected && tabLike) { hit = "sel:$l"; break }
                     // ফুল-স্ক্রিন Reels পেজের ওপরের শিরোনাম (ফিডের লিস্টের ভেতরের শিরোনাম বাদ)
                     if (!nowInList && l in reelExact) {
@@ -439,6 +460,31 @@ class GuardService : AccessibilityService() {
         return true
     }
 
+    // ক্লিক করা অংশ বা তার ওপরের/ভেতরের লেখা "Reel..." দিয়ে শুরু হলে সেটা Reels কার্ড
+    private fun labelIsReel(n: AccessibilityNodeInfo): Boolean {
+        val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+        val b = n.text?.toString()?.lowercase()?.trim() ?: ""
+        return (a.isNotEmpty() && a.length <= 80 && reelWords.any { a.startsWith(it) }) ||
+            (b.isNotEmpty() && b.length <= 80 && reelWords.any { b.startsWith(it) })
+    }
+
+    private fun clickedReel(src: AccessibilityNodeInfo?): Boolean {
+        src ?: return false
+        var n: AccessibilityNodeInfo? = src
+        var i = 0
+        while (n != null && i < 8) {
+            if (labelIsReel(n)) return true
+            n = n.parent; i++
+        }
+        fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
+            if (x == null || d > 2) return false
+            if (labelIsReel(x)) return true
+            for (k in 0 until x.childCount) if (down(x.getChild(k), d + 1)) return true
+            return false
+        }
+        return down(src, 0)
+    }
+
     // ---------- Facebook Lite: স্ক্রিনশট থেকে লেখা পড়ে Reels পেজ চেনা ----------
     // Lite নিজের স্ক্রিনের লেখা অ্যাক্সেসিবিলিটিতে দেয় না, তাই ছবি তুলে ফোনের ভেতরেই লেখা পড়া হয়।
     private var shotBusy = false
@@ -455,11 +501,14 @@ class GuardService : AccessibilityService() {
 
     private fun liteTick() {
         if (Build.VERSION.SDK_INT < 30 || shotBusy) return
-        if (!Prefs.loggedIn(this) || !Prefs.fbReel(this)) return
+        if (!Prefs.loggedIn(this)) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return
         val pkg = rootInActiveWindow?.packageName?.toString()
-        if (pkg != "com.facebook.lite") { liteSeen = 0; return }
+        val on = pkg != null && ((pkg in fbPkgs && Prefs.fbReel(this)) ||
+            (pkg == "com.instagram.lite" && Prefs.igReel(this)))
+        if (!on) { liteSeen = 0; return }
+        ocrPkg = pkg!!
         shotBusy = true
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
             override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
@@ -507,10 +556,12 @@ class GuardService : AccessibilityService() {
         // একই জায়গায় স্থির থাকলে তবেই (ফিড স্ক্রল করার সময় শিরোনাম সরে যায়)
         if (liteSeen > 0 && Math.abs(foundTop - liteLastTop) < h * 2 / 100) liteSeen++ else liteSeen = 1
         liteLastTop = foundTop
-        if (liteSeen >= 2) {
+        val need = if (now < reelIntentUntil) 1 else 2
+        if (liteSeen >= need) {
             liteSeen = 0
-            Diag.reelPkg = "com.facebook.lite"; Diag.reelHit = "ocr:reels"; Diag.reelAt = now
-            Diag.lastBlock = "lite ocr:reels"; Diag.lastBlockAt = now
+            reelIntentUntil = 0L
+            Diag.reelPkg = ocrPkg; Diag.reelHit = "ocr:reels"; Diag.reelAt = now
+            Diag.lastBlock = ocrPkg.substringAfterLast('.') + " ocr:reels"; Diag.lastBlockAt = now
             blockReels(now)
         }
     }
