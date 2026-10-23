@@ -43,28 +43,30 @@ class GuardService : AccessibilityService() {
     private var lastWinClass = ""
     private val handler = Handler(Looper.getMainLooper())
 
+    // ---- Reels ব্লক ----
     private var lastReelScan = 0L
     private var lastReelBlock = 0L
     private var lastReelToast = 0L
     private var reelStreak = 0
     private val fbPkgs = setOf("com.facebook.katana", "com.facebook.lite")
     private val igPkgs = setOf("com.instagram.android", "com.instagram.lite")
+    // Reels ট্যাব/স্ক্রিন চেনার শব্দ (ইংরেজি ও বাংলা UI দুটোতেই)
     private val reelWords = listOf("reel", "রিল", "রীল")
+    // স্ক্রিনের ওপরের শিরোনামে ঠিক এই লেখা থাকলে (এবং লিস্টের ভেতরে না হলে) Reels স্ক্রিন ধরা হয়
     private val reelExact = setOf("reels", "reel", "রিলস", "রিল", "রীলস", "রীল")
+    // Instagram-এর Reels স্ক্রিনের ভেতরের id-র অংশ (বড় আকারে দেখা গেলে তবেই ধরা হয়)
     private val igReelIds = listOf("clips", "reel")
+    // মেসেজ/ইনবক্স স্ক্রিন চেনার id: এগুলো থাকলে Reels ভেবে ভুল ব্লক করবে না
     private val inboxIds = listOf("direct_inbox", "inbox_refreshable", "row_inbox", "inbox_container",
         "direct_thread", "thread_list", "message_list", "row_thread")
+    // ফিডের লিস্ট চেনার ক্লাস (ফিডের ভেতরের "Reels" শিরোনাম ব্লক করবে না)
     private val listClasses = listOf("recyclerview", "listview", "scrollview")
     private var weakHits = 0
-    private var reelIntentUntil = 0L
-    private var ocrPkg = ""
-    private var videoModeUntil = 0L
-    private var videoSince = 0L
-    private var upNextName = ""
-    private var changeSeen = 0
-    private var videoIntentUntil = 0L
-    private val fbMain = "com.facebook.katana"
     private var lastWeakAt = 0L
+    private var ocrPkg = ""
+    private var viewerSeen = 0
+    private var warnBusy = false
+    private val numRegex = Regex("^[0-9]+([.,][0-9])?[km]?$")
 
     private val poll = object : Runnable {
         override fun run() {
@@ -84,6 +86,7 @@ class GuardService : AccessibilityService() {
         "com.duckduckgo.mobile.android" to listOf("com.duckduckgo.mobile.android:id/omnibarTextInput")
     )
 
+    // ---- পেজের লেখা পাহারা: যেকোনো অ্যাপে চলে (শুধু নিচের সিস্টেম অংশগুলো বাদ) ----
     private fun shouldScan(pkg: String): Boolean {
         if (pkg == packageName || pkg == "android") return false
         val p = pkg.lowercase()
@@ -99,6 +102,7 @@ class GuardService : AccessibilityService() {
         }
     }
 
+    // সেইফ সার্চ চালু থাকলে VPN হঠাৎ বন্ধ হয়ে গেলে নিজে থেকে আবার চালু করে দেয়
     private var lastVpnTry = 0L
     private fun vpnWatch() {
         if (!Prefs.loggedIn(this) || !Prefs.safe(this) || DnsVpnService.active) return
@@ -108,17 +112,21 @@ class GuardService : AccessibilityService() {
         if (VpnService.prepare(this) == null) DnsVpnService.start(this)
     }
 
+    // যেসব অ্যাপে NafsGuard-এর সেটিংস/আনইন্সটল পেজ খুলতে পারে
     private val sensitiveParts = listOf(
         "settings", "installer", "permissioncontroller", "launcher",
         "securitycenter", "safecenter", "phonemaster", "appmanager"
     )
+    // ক্লিক ধরার জন্য (লঞ্চার বাদ, নইলে হোম স্ক্রিনে অ্যাপ খুলতেই আটকাবে)
     private val clickParts = listOf("settings", "installer", "securitycenter", "safecenter", "phonemaster", "appmanager")
 
+    // NafsGuard-এর "বিস্তারিত" পেজ চেনার শব্দ
     private val detailWords = listOf(
         "force stop", "uninstall", "deactivate", "clear data", "clear storage",
         "use nafsguard", "stop nafsguard", "forget vpn", "disconnect",
         "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
+    // ডিভাইস অ্যাডমিন পেজ চেনার শব্দ (অ্যাডমিন চালু থাকলে এগুলোতেও আটকাবে)
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
 
     override fun onServiceConnected() {
@@ -150,6 +158,7 @@ class GuardService : AccessibilityService() {
     private fun pollOnce() {
         if (!Prefs.loggedIn(this) || !Prefs.locked(this)) return
         val now = System.currentTimeMillis()
+        // লক চলাকালীন অ্যাডমিন বন্ধ হয়ে গেলে আবার চালুর অনুরোধ
         if (!adminActive() && now - lastNag > 4000) {
             lastNag = now
             try {
@@ -177,10 +186,11 @@ class GuardService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_BACK)
         if (now - lastToast > 2500) {
             lastToast = now
-            toast("🔒 Lok chalu, NafsGuard-er settings bodlano jabe na")
+            toast("🔒 লক চালু, NafsGuard-এর সেটিংস বদলানো যাবে না")
         }
     }
 
+    // ডিভাইস অ্যাডমিন পেজ: ভাষা যা-ই হোক, স্ক্রিনের ক্লাস নাম দেখে চেনা হয়
     private fun deviceAdminGuard(root: AccessibilityNodeInfo): Boolean {
         if (!Prefs.locked(this)) return false
         if (!lastWinPkg.lowercase().contains("settings")) return false
@@ -188,9 +198,10 @@ class GuardService : AccessibilityService() {
         if (root.packageName?.toString() != lastWinPkg) return false
         if (!has(root, "NafsGuard")) return false
         if (adminActive()) {
-            block()
+            block()      // অ্যাডমিন চালু: বন্ধ করার পেজ খুলতে দেবে না
             return true
         }
+        // অ্যাডমিন বন্ধ হয়ে গেছে: অ্যাক্টিভেশন পেজে নিজে থেকে "Activate" চেপে দেওয়া
         val btns = root.findAccessibilityNodeInfosByViewId("com.android.settings:id/action_button")
         if (btns != null && btns.isNotEmpty()) {
             btns[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -199,6 +210,7 @@ class GuardService : AccessibilityService() {
         return false
     }
 
+    // শুধু NafsGuard-এর নিজের পেজ/ডায়ালগ খুললে পেছনে পাঠায়; অন্য সেটিংস স্বাভাবিক থাকে
     private fun protect(pkg: String, root: AccessibilityNodeInfo): Boolean {
         if (pkg == packageName || !Prefs.locked(this)) return false
         val p = pkg.lowercase()
@@ -230,23 +242,18 @@ class GuardService : AccessibilityService() {
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val cls = e.className?.toString() ?: ""
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
-                val prevCls = lastWinClass
                 lastWinPkg = pkg
                 lastWinClass = cls
-                val tw = System.currentTimeMillis()
-                if (reelEnabled(pkg) && tw < reelIntentUntil && cls != prevCls) {
-                    reelIntentUntil = 0L
-                    blockReels(tw)
-                }
-                if (pkg == fbMain && Prefs.fbReel(this) && tw < videoIntentUntil && cls != prevCls) {
-                    videoIntentUntil = 0L
-                    blockReels(tw)
-                }
                 if (reelEnabled(pkg)) {
                     val tNow = System.currentTimeMillis()
+                    Diag.reelWin = cls
                     val cl = cls.lowercase()
-                    val skip = listOf("share", "direct", "message", "inbox", "compos", "create", "upload", "camera", "story")
+                    // মেসেজ/স্টোরি/শেয়ার/তৈরির স্ক্রিনের ক্লাসে reel শব্দ থাকলেও ব্লক করবে না
+                    val skip = listOf("share", "direct", "message", "messag", "inbox", "chat", "thread",
+                        "story", "stories", "compos", "create", "upload", "camera")
                     if (cl.contains("reel") && skip.none { cl.contains(it) }) {
+                        Diag.reelPkg = pkg; Diag.reelHit = "win:" + cls.substringAfterLast('.'); Diag.reelAt = tNow
+                        Diag.lastBlock = pkg.substringAfterLast('.') + " " + Diag.reelHit; Diag.lastBlockAt = tNow
                         blockReels(tNow)
                     }
                 }
@@ -256,35 +263,15 @@ class GuardService : AccessibilityService() {
 
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                val tn = System.currentTimeMillis()
-                if (pkg in fbPkgs && Prefs.fbReel(this) && tn < videoModeUntil && tn - videoSince > 1200) {
-                    val dy = if (Build.VERSION.SDK_INT >= 28) Math.abs(e.scrollDeltaY) else 100
-                    if (dy >= 40 || (e.fromIndex >= 0 && e.toIndex >= 0 && e.fromIndex != e.toIndex)) {
-                        videoModeUntil = 0L; changeSeen = 0; upNextName = ""
-                        blockReels(tn)
-                    }
-                }
-                return
-            }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                val csrc = e.source
-                if (csrc != null && clickExcluded(csrc)) {
-                    reelIntentUntil = 0L; videoIntentUntil = 0L
-                } else {
-                    if (pkg == fbMain && Prefs.fbReel(this) && clickedVideo(csrc)) {
-                        videoIntentUntil = System.currentTimeMillis() + 2500
-                    }
-                    if (reelEnabled(pkg) && clickedReel(csrc)) {
-                        reelIntentUntil = System.currentTimeMillis() + 2500
-                    }
-                }
+                // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
                 val p = pkg.lowercase()
                 if (Prefs.locked(this) && clickParts.any { p.contains(it) } && clickedOurName(e)) {
                     handler.postDelayed({ block() }, 450)
                 }
                 return
             }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> return
         }
 
         val root = rootInActiveWindow ?: return
@@ -292,22 +279,41 @@ class GuardService : AccessibilityService() {
         if (deviceAdminGuard(root)) return
         if (protect(rootPkg, root)) return
         if (checkReels(root, rootPkg)) return
+
+        val now = System.currentTimeMillis()
+        if (now - last < 300) return
+        last = now
+        urlBars[rootPkg]?.forEach { id ->
+            root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
+                val t = n.text?.toString() ?: return@forEach
+                if (Guard.isBad(this, t)) {
+                    showWarning(rootPkg)
+                    return
+                }
+            }
+        }
     }
 
+    // খারাপ শব্দ লিখলে শুধু সেই শব্দটুকু মুছে বাকি লেখা রেখে দেওয়া, তারপর সতর্কবার্তা
     private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
         if (n.isPassword || !n.isEditable) return
         val t = n.text?.toString() ?: return
         if (Guard.isBad(this, t)) {
             var clean = Guard.removeBad(this, t)
-            if (Guard.isBad(this, clean)) clean = ""
+            if (Guard.isBad(this, clean)) clean = ""      // নিরাপত্তা: তবুও থেকে গেলে পুরোটা মুছবে
             val args = Bundle()
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, clean)
             n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val sel = Bundle()
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, clean.length)
+            sel.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, clean.length)
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
             showWarning(pkg)
         }
     }
 
+    // ---------- Reels ব্লক ----------
     private fun reelEnabled(pkg: String): Boolean = when {
         pkg in fbPkgs -> Prefs.fbReel(this)
         pkg in igPkgs -> Prefs.igReel(this)
@@ -324,9 +330,13 @@ class GuardService : AccessibilityService() {
         return false
     }
 
+    // স্ক্রিনে Reels আছে কিনা দেখে; পেলে কোন সংকেতে ধরল সেটা ফেরত দেয়, না পেলে null
+    // নিয়ম: নিউজ ফিডের ভিডিও/রিলস কার্ড, মেসেজ ও স্টোরি ব্লক হবে না।
+    // ব্লক হবে শুধু (১) Reels ট্যাব নির্বাচিত, (২) Reels/ভিডিও প্লেয়ারের ইন্টারফেস খুললে।
     private fun reelSignal(root: AccessibilityNodeInfo, pkg: String): String? {
         val isIg = pkg in igPkgs
         val isLite = pkg == "com.facebook.lite"
+        val dump = if (Diag.show) LinkedHashSet<String>() else null
         val dm = resources.displayMetrics
         val h = dm.heightPixels
         val topLimit = h * 18 / 100
@@ -338,7 +348,7 @@ class GuardService : AccessibilityService() {
 
         fun walk(n: AccessibilityNodeInfo?, depth: Int, inList: Boolean) {
             if (n == null || cnt[0] > 700 || depth > 40) return
-            if (hit != null && inbox) return
+            if (hit != null && dump == null && inbox) return
             cnt[0]++
             val id = n.viewIdResourceName ?: ""
             val visible = n.isVisibleToUser
@@ -350,42 +360,106 @@ class GuardService : AccessibilityService() {
             val labels = ArrayList<String>(3)
             n.contentDescription?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
             n.text?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
-            
+            if (Build.VERSION.SDK_INT >= 28) {
+                n.paneTitle?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
+            }
             val sel = isSelectedNode(n)
             val interesting = idl.contains("video") || idl.contains("reel") || idl.contains("clips")
             var bounds = false
-            if (visible && interesting) { n.getBoundsInScreen(rect); bounds = true }
+            if (visible && (interesting || (dump != null))) { n.getBoundsInScreen(rect); bounds = true }
 
+            if (isLite && visible && bounds && idl.endsWith("video_view") && h > 0) {
+                Diag.liteVideo = (rect.top * 100 / h).toString() + "-" + (rect.bottom * 100 / h) + "% চওড়া " +
+                    (rect.width() * 100 / dm.widthPixels) + "%"
+                Diag.liteVideoAt = System.currentTimeMillis()
+            }
             if (hit == null && visible) {
                 if (isIg && sel && idl.endsWith("clips_tab")) hit = "tab:clips_tab"
+                // Instagram-এর ফুল-স্ক্রিন Reels প্লেয়ার (clips/reel নামের বড় খাড়া ভিউ)
                 else if (interesting && bounds && rect.height() >= bigH && rect.height() > rect.width() &&
                     isIg && igReelIds.any { idl.contains(it) }) {
                     hit = "big:" + idl.substringAfter(":id/")
                 }
                 else for (l in labels) {
                     if (l.length > 40) continue
+                    // লেখা Reels দিয়েই শুরু হতে হবে ("sent a reel" ইত্যাদি ধরবে না)
                     if (reelWords.none { l.startsWith(it) }) continue
                     val selected = sel || l.contains("selected") || l.contains("নির্বাচিত")
                     var tabLike = idl.contains("tab") || l.contains("tab") || l.contains("ট্যাব")
                     if (selected && !tabLike) {
+                        // Instagram Lite ইত্যাদিতে লেখায় "tab" থাকে না: নিচের/ওপরের ছোট বারের ভেতরে থাকলে ট্যাব ধরা হয়
                         if (!bounds) { n.getBoundsInScreen(rect); bounds = true }
                         tabLike = rect.height() in 1 until (h * 12 / 100) &&
                             (rect.top > h * 80 / 100 || rect.bottom < h * 20 / 100)
                     }
                     if (selected && tabLike) { hit = "sel:$l"; break }
+                    // ফুল-স্ক্রিন Reels পেজের ওপরের শিরোনাম (ফিডের লিস্টের ভেতরের শিরোনাম বাদ)
                     if (!nowInList && l in reelExact) {
                         if (!bounds) { n.getBoundsInScreen(rect); bounds = true }
                         if (rect.height() > 0 && rect.top < topLimit) { hit = "top:$l"; break }
                     }
                 }
             }
+            if (dump != null && dump.size < 40 && visible) {
+                val sid = id.substringAfter(":id/")
+                var s2 = sid + (if (labels.isNotEmpty()) "[" + labels[0].take(18) + "]" else "") + (if (sel) "*" else "")
+                if (interesting && bounds && h > 0) s2 += "@" + (rect.top * 100 / h) + "-" + (rect.bottom * 100 / h)
+                if (s2.isNotEmpty()) dump.add(s2)
+            }
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1, nowInList)
         }
         walk(root, 0, false)
+        if (dump != null) Diag.reelDump = dump.joinToString("  ")
         if (inbox) return null
         return hit
     }
 
+    // ডান পাশে নিচের দিকে খাড়া সারিতে লাইক/কমেন্ট/শেয়ার/সেভ/মোর বোতাম থাকলে সেটা Reels/ভিডিও প্লেয়ার
+    // (ফিডে এই বোতামগুলো পোস্টের নিচে পাশাপাশি থাকে, ডান পাশে খাড়া সারিতে থাকে না)
+    private val actWords = listOf("like", "comment", "share", "save", "more", "send",
+        "লাইক", "মন্তব্য", "কমেন্ট", "শেয়ার", "সেভ")
+
+    private fun actionColumn(root: AccessibilityNodeInfo): Boolean {
+        val dm = resources.displayMetrics
+        val w = dm.widthPixels
+        val h = dm.heightPixels
+        val rect = Rect()
+        val pts = ArrayList<IntArray>()
+        val cnt = intArrayOf(0)
+        fun walk(n: AccessibilityNodeInfo?, d: Int) {
+            if (n == null || cnt[0] > 700 || d > 40) return
+            cnt[0]++
+            if (n.isVisibleToUser) {
+                val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+                val b = n.text?.toString()?.lowercase()?.trim() ?: ""
+                val l = if (a.isNotEmpty()) a else b
+                if (l.isNotEmpty() && l.length <= 40 && actWords.any { l.startsWith(it) }) {
+                    n.getBoundsInScreen(rect)
+                    val cx = (rect.left + rect.right) / 2
+                    val cy = (rect.top + rect.bottom) / 2
+                    if (cx > w * 78 / 100 && cy > h * 30 / 100 && cy < h * 97 / 100 && rect.width() < w * 25 / 100) {
+                        pts.add(intArrayOf(cx, cy))
+                    }
+                }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), d + 1)
+        }
+        walk(root, 0)
+        if (pts.size < 3) return false
+        pts.sortBy { it[1] }
+        var distinct = 1
+        var lastY = pts[0][1]
+        var minX = pts[0][0]
+        var maxX = pts[0][0]
+        for (i in 1 until pts.size) {
+            if (pts[i][1] - lastY >= h * 5 / 100) { distinct++; lastY = pts[i][1] }
+            if (pts[i][0] < minX) minX = pts[i][0]
+            if (pts[i][0] > maxX) maxX = pts[i][0]
+        }
+        return distinct >= 3 && (maxX - minX) <= w * 8 / 100
+    }
+
+    // Back (বারবার ফিরে এলে হোম) এবং ছোট বার্তা
     private fun blockReels(now: Long) {
         if (now - lastReelBlock < 900) return
         lastReelBlock = now
@@ -398,138 +472,39 @@ class GuardService : AccessibilityService() {
         }
         if (now - lastReelToast > 2500) {
             lastReelToast = now
-            toast("🚫 NafsGuard: Reels block kora ache")
+            toast("🚫 NafsGuard: Reels ব্লক করা আছে")
         }
     }
 
+    // Facebook/Instagram (ও Lite)-এ Reels খুললে ব্লক
     private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!reelEnabled(pkg)) return false
         val now = System.currentTimeMillis()
         if (now - lastReelScan < 350) return false
         lastReelScan = now
 
-        if (pkg == fbMain && now < videoIntentUntil && fullscreenVideo(root)) {
-            videoIntentUntil = 0L
-            blockReels(now)
-            return true
-        }
-
-        val hit = reelSignal(root, pkg)
+        // Reels লেখা না থাকলেও ডান পাশের লাইক-কমেন্ট-শেয়ার-সেভ-মোর আইকনের সারি দেখলে প্লেয়ার ধরা হয়
+        val hit = reelSignal(root, pkg) ?: (if (actionColumn(root)) "col:viewer" else null)
+        Diag.reelPkg = pkg; Diag.reelHit = hit ?: "-"; Diag.reelAt = now
         if (hit == null) {
             weakHits = 0
             if (now - lastReelBlock > 8000) reelStreak = 0
             return false
         }
-        if (hit.startsWith("top:")) {
+        // দুর্বল সংকেত (শিরোনাম বা আইকনের সারি): পরপর ২ বার দেখা গেলে তবেই ব্লক, নইলে ফিডে স্ক্রল করার সময় ভুল ব্লক হতে পারে
+        if (hit.startsWith("top:") || hit.startsWith("col:")) {
             if (now - lastWeakAt > 2500) weakHits = 0
             lastWeakAt = now
             weakHits++
             if (weakHits < 2) return false
         }
+        Diag.lastBlock = pkg.substringAfterLast('.') + " " + hit; Diag.lastBlockAt = now
         blockReels(now)
         return true
     }
 
-    private fun looksVideo(n: AccessibilityNodeInfo): Boolean {
-        val idl = n.viewIdResourceName?.lowercase() ?: ""
-        val cl = n.className?.toString()?.lowercase() ?: ""
-        if (idl.contains("video") || cl.contains("video")) return true
-        val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
-        val b = n.text?.toString()?.lowercase()?.trim() ?: ""
-        for (l in listOf(a, b)) {
-            if (l.isNotEmpty() && l.length <= 100 && l.contains("video") &&
-                !l.contains("tab") && !l.contains("ট্যাব")) return true
-        }
-        return false
-    }
-
-    private fun bigClick(src: AccessibilityNodeInfo): Boolean {
-        val r = Rect()
-        src.getBoundsInScreen(r)
-        return r.height() >= resources.displayMetrics.heightPixels * 15 / 100
-    }
-
-    private val clickSkipWords = listOf("story", "stories", "স্টোরি", "messenger", "message", "মেসেজ", "মেসেঞ্জার", "chat", "inbox")
-    private fun clickExcluded(src: AccessibilityNodeInfo): Boolean {
-        var n: AccessibilityNodeInfo? = src
-        var i = 0
-        while (n != null && i < 6) {
-            val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
-            val b = n.text?.toString()?.lowercase()?.trim() ?: ""
-            val idl = n.viewIdResourceName?.lowercase() ?: ""
-            for (l in listOf(a, b, idl)) {
-                if (l.isNotEmpty() && l.length <= 120 && clickSkipWords.any { l.contains(it) }) return true
-            }
-            n = n.parent; i++
-        }
-        return false
-    }
-
-    private fun clickedVideo(src: AccessibilityNodeInfo?): Boolean {
-        src ?: return false
-        var n: AccessibilityNodeInfo? = src
-        var i = 0
-        while (n != null && i < 6) {
-            if (looksVideo(n)) return true
-            n = n.parent; i++
-        }
-        if (!bigClick(src)) return false
-        fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
-            if (x == null || d > 2) return false
-            if (looksVideo(x)) return true
-            for (k in 0 until x.childCount) if (down(x.getChild(k), d + 1)) return true
-            return false
-        }
-        return down(src, 0)
-    }
-
-    private fun fullscreenVideo(root: AccessibilityNodeInfo): Boolean {
-        val h = resources.displayMetrics.heightPixels
-        val rect = Rect()
-        val cnt = intArrayOf(0)
-        var found = false
-        fun walk(n: AccessibilityNodeInfo?, d: Int) {
-            if (n == null || found || cnt[0] > 700 || d > 40) return
-            cnt[0]++
-            if (n.isVisibleToUser) {
-                val idl = n.viewIdResourceName?.lowercase() ?: ""
-                val cl = n.className?.toString()?.lowercase() ?: ""
-                if (idl.contains("video") || idl.contains("player") || cl.contains("video") || cl.contains("player")) {
-                    n.getBoundsInScreen(rect)
-                    if (rect.height() >= h * 68 / 100) { found = true; return }
-                }
-            }
-            for (i in 0 until n.childCount) walk(n.getChild(i), d + 1)
-        }
-        walk(root, 0)
-        return found
-    }
-
-    private fun labelIsReel(n: AccessibilityNodeInfo): Boolean {
-        val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
-        val b = n.text?.toString()?.lowercase()?.trim() ?: ""
-        return (a.isNotEmpty() && a.length <= 80 && reelWords.any { a.startsWith(it) }) ||
-            (b.isNotEmpty() && b.length <= 80 && reelWords.any { b.startsWith(it) })
-    }
-
-    private fun clickedReel(src: AccessibilityNodeInfo?): Boolean {
-        src ?: return false
-        var n: AccessibilityNodeInfo? = src
-        var i = 0
-        while (n != null && i < 8) {
-            if (labelIsReel(n)) return true
-            n = n.parent; i++
-        }
-        if (!bigClick(src)) return false
-        fun down(x: AccessibilityNodeInfo?, d: Int): Boolean {
-            if (x == null || d > 2) return false
-            if (labelIsReel(x)) return true
-            for (k in 0 until x.childCount) if (down(x.getChild(k), d + 1)) return true
-            return false
-        }
-        return down(src, 0)
-    }
-
+    // ---------- Facebook / Lite / Instagram Lite: স্ক্রিনশট থেকে লেখা পড়ে প্লেয়ার চেনা ----------
+    // Lite নিজের স্ক্রিনের লেখা অ্যাক্সেসিবিলিটিতে দেয় না, তাই ছবি তুলে ফোনের ভেতরেই লেখা পড়া হয়।
     private var shotBusy = false
     private var liteSeen = 0
     private var liteLastTop = -1
@@ -537,20 +512,20 @@ class GuardService : AccessibilityService() {
 
     private val liteLoop = object : Runnable {
         override fun run() {
-            try { liteTick() } catch (e: Exception) {}
-            handler.postDelayed(this, 1000)
+            try { liteTick() } catch (e: Exception) { Diag.liteErr = "e:" + (e.message ?: "").take(30) }
+            handler.postDelayed(this, 800)
         }
     }
 
     private fun liteTick() {
-        if (Build.VERSION.SDK_INT < 30 || shotBusy) return
+        if (Build.VERSION.SDK_INT < 30 || shotBusy || warnBusy) return
         if (!Prefs.loggedIn(this)) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return
         val pkg = rootInActiveWindow?.packageName?.toString()
         val on = pkg != null && ((pkg in fbPkgs && Prefs.fbReel(this)) ||
             (pkg == "com.instagram.lite" && Prefs.igReel(this)))
-        if (!on) { liteSeen = 0; return }
+        if (!on) { liteSeen = 0; viewerSeen = 0; return }
         ocrPkg = pkg!!
         shotBusy = true
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
@@ -560,16 +535,22 @@ class GuardService : AccessibilityService() {
                     val hw = Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
                     val bmp = hw?.copy(Bitmap.Config.ARGB_8888, false)
                     hb.close()
-                    if (bmp == null) { shotBusy = false; return }
+                    if (bmp == null) { shotBusy = false; Diag.liteErr = "bmp null"; return }
                     recognizer.process(InputImage.fromBitmap(bmp, 0))
                         .addOnSuccessListener { t ->
                             shotBusy = false
                             try { liteEvaluate(t, bmp.width, bmp.height) } catch (e: Exception) {}
                         }
-                        .addOnFailureListener { shotBusy = false }
-                } catch (e: Exception) { shotBusy = false }
+                        .addOnFailureListener { e ->
+                            shotBusy = false
+                            Diag.liteErr = "ocr:" + (e.message ?: "").take(30)
+                        }
+                } catch (e: Exception) {
+                    shotBusy = false
+                    Diag.liteErr = "shot:" + (e.message ?: "").take(30)
+                }
             }
-            override fun onFailure(code: Int) { shotBusy = false }
+            override fun onFailure(code: Int) { shotBusy = false; Diag.liteErr = "shot-fail:$code" }
         })
     }
 
@@ -577,29 +558,68 @@ class GuardService : AccessibilityService() {
         val now = System.currentTimeMillis()
         var found = false
         var foundTop = -1
+        val topLines = ArrayList<String>()
+        var moreEnd = false
+        var follow = false
+        var upNext = false
+        var addComment = false
+        var numRight = false
         for (b in t.textBlocks) for (ln in b.lines) {
             val box = ln.boundingBox ?: continue
             val txt = ln.text.trim().lowercase()
+            if (box.top < h * 25 / 100 && topLines.size < 8) topLines.add(txt.take(14))
+            // ওপরের বাঁ দিকে ছোট "Reels" শিরোনাম = Reels প্লেয়ার/পেজ
             if (txt in reelExact && box.top < h * 14 / 100 && box.left < w / 2 && box.width() < w / 2) {
                 found = true; foundTop = box.top
             }
+            if (box.top > h * 55 / 100) {
+                // প্লেয়ারের বর্ণনার শেষে "... more" (ফিডে সেখানে "See more" লেখা থাকে)
+                if (!txt.contains("see more") && (txt == "more" || txt.endsWith("... more") ||
+                        txt.endsWith("… more") || txt.endsWith("...more"))) moreEnd = true
+                if (txt.startsWith("follow") && box.left > w * 40 / 100) follow = true
+                if (txt.startsWith("up next")) upNext = true
+                if (txt.startsWith("add a comment")) addComment = true
+            }
+            // ডান পাশের লাইক/কমেন্ট/শেয়ারের নিচের সংখ্যা (যেমন 326, 62, 73K)
+            if (box.left > w * 80 / 100 && box.top > h * 40 / 100 && txt.length <= 5 && numRegex.matches(txt)) numRight = true
         }
+        // প্লেয়ারের ইন্টারফেস: "... more" এর সাথে Follow / UP NEXT / Add a comment / ডান পাশের সংখ্যা
+        val viewer = moreEnd && (follow || upNext || addComment || numRight)
+        Diag.liteOcr = (if (viewer) "[VIEWER] " else "") + (if (topLines.isEmpty()) "-" else topLines.joinToString("|"))
+        Diag.liteOcrAt = now
+        if (viewer) {
+            viewerSeen++
+            if (viewerSeen >= 2) {
+                viewerSeen = 0
+                liteSeen = 0
+                Diag.reelPkg = ocrPkg; Diag.reelHit = "ocr:viewer"; Diag.reelAt = now
+                Diag.lastBlock = ocrPkg.substringAfterLast('.') + " ocr:viewer"; Diag.lastBlockAt = now
+                blockReels(now)
+                return
+            }
+        } else viewerSeen = 0
         if (!found) { liteSeen = 0; return }
+        // একই জায়গায় স্থির থাকলে তবেই (ফিড স্ক্রল করার সময় শিরোনাম সরে যায়)
         if (liteSeen > 0 && Math.abs(foundTop - liteLastTop) < h * 2 / 100) liteSeen++ else liteSeen = 1
         liteLastTop = foundTop
         if (liteSeen >= 2) {
             liteSeen = 0
-            reelIntentUntil = 0L
+            Diag.reelPkg = ocrPkg; Diag.reelHit = "ocr:reels"; Diag.reelAt = now
+            Diag.lastBlock = ocrPkg.substringAfterLast('.') + " ocr:reels"; Diag.lastBlockAt = now
             blockReels(now)
         }
     }
 
+    // ---------- পেজের লেখা যাচাই ----------
     private fun scanOnce() {
         if (!Prefs.loggedIn(this) || overlay != null) return
+        Diag.loopAt = System.currentTimeMillis()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) return
-        val root = rootInActiveWindow ?: return
+        val root = rootInActiveWindow
+        if (root == null) { Diag.rootNull++; return }
         val pkg = root.packageName?.toString() ?: return
+        if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = shouldScan(pkg) }
         if (checkReels(root, pkg)) return
         if (!shouldScan(pkg)) return
         scanPageText(root, pkg)
@@ -615,15 +635,55 @@ class GuardService : AccessibilityService() {
         for (i in 0 until n.childCount) collectText(n.getChild(i), sb, depth + 1, count)
     }
 
+    // পেজে ২টি বা বেশি খারাপ শব্দ থাকলে সতর্কবার্তা (একটা শব্দে ভুল ব্লক এড়াতে)
     private fun scanPageText(root: AccessibilityNodeInfo, pkg: String) {
         val sb = StringBuilder()
         val cnt = intArrayOf(0)
         collectText(root, sb, 0, cnt)
         val bad = Guard.badCount(this, sb.toString())
+        Diag.textNodes = cnt[0]; Diag.textChars = sb.length; Diag.textBad = bad; Diag.textAt = System.currentTimeMillis()
         if (bad >= 2) showWarning(pkg)
     }
 
+    // ---------- সতর্কবার্তা পপ-আপ (সব অ্যাপের ওপরে দেখায়, পেছনের স্ক্রিন ঝাপসা) ----------
+    private fun blurBitmap(src: Bitmap): Bitmap {
+        val sw = maxOf(1, src.width / 28)
+        val sh = maxOf(1, src.height / 28)
+        val small = Bitmap.createScaledBitmap(src, sw, sh, true)
+        val tiny = Bitmap.createScaledBitmap(small, maxOf(1, sw / 2), maxOf(1, sh / 2), true)
+        return Bitmap.createScaledBitmap(tiny, maxOf(1, src.width / 4), maxOf(1, src.height / 4), true)
+    }
+
     private fun showWarning(pkg: String) {
+        if (overlay != null || warnBusy) return
+        if (Build.VERSION.SDK_INT >= 30) {
+            warnBusy = true
+            try {
+                takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
+                        var blurred: Bitmap? = null
+                        try {
+                            val hb = r.hardwareBuffer
+                            val hw = Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
+                            val bmp = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                            hb.close()
+                            if (bmp != null) blurred = blurBitmap(bmp)
+                        } catch (e: Exception) {}
+                        warnBusy = false
+                        buildWarning(pkg, blurred)
+                    }
+                    override fun onFailure(code: Int) { warnBusy = false; buildWarning(pkg, null) }
+                })
+            } catch (e: Exception) {
+                warnBusy = false
+                buildWarning(pkg, null)
+            }
+        } else {
+            buildWarning(pkg, null)
+        }
+    }
+
+    private fun buildWarning(pkg: String, blurred: Bitmap?) {
         if (overlay != null) return
         val c: Context = this
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -641,16 +701,28 @@ class GuardService : AccessibilityService() {
             setColorFilter(Color.parseColor("#C62828"))
             layoutParams = LinearLayout.LayoutParams(Ui.dp(c, 72), Ui.dp(c, 72))
         })
-        card.addView(Ui.text(c, "Allah ke voy korun.", 22f, true, Color.parseColor("#C62828"))
+        card.addView(Ui.text(c, "আল্লাহকে ভয় করুন।", 22f, true, Color.parseColor("#C62828"))
             .apply { gravity = Gravity.CENTER })
-        card.addView(Ui.text(c, "Apatot phone ta rekhe ektu pani khan.", 16f)
+        card.addView(Ui.text(c, "আপাতত ফোনটা রেখে একটু পানি খান বা হাঁটাচলা করুন।", 16f)
             .apply { gravity = Gravity.CENTER })
-        card.addView(Ui.button(c, "Bondho korun") { dismissWarning(pkg) })
+        card.addView(Ui.button(c, "বন্ধ করুন") { dismissWarning(pkg) })
 
         val m = Ui.dp(c, 28)
         val root = FrameLayout(c).apply {
-            setBackgroundColor(Color.parseColor("#B3000000"))
             isClickable = true
+            if (blurred != null) {
+                // পেছনে পুরো স্ক্রিনের ঝাপসা ছবি + হালকা কালো পর্দা
+                setBackgroundColor(Color.BLACK)
+                addView(ImageView(c).apply {
+                    scaleType = ImageView.ScaleType.FIT_XY
+                    setImageBitmap(blurred)
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(View(c).apply { setBackgroundColor(Color.parseColor("#59000000")) },
+                    FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            } else {
+                // স্ক্রিনশট না পেলে গাঢ় পর্দা, যাতে পেছনের লেখা পড়া না যায়
+                setBackgroundColor(Color.parseColor("#E6101010"))
+            }
             addView(card, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER
             ).apply { setMargins(m, 0, m, 0) })
@@ -658,14 +730,15 @@ class GuardService : AccessibilityService() {
         val lp = WindowManager.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
         try {
             wm.addView(root, lp)
             overlay = root
         } catch (e: Exception) {
-            toast("🚫 Nishiddho shobdo")
+            toast("🚫 নিষিদ্ধ শব্দ, আল্লাহকে ভয় করুন")
             performGlobalAction(GLOBAL_ACTION_HOME)
         }
     }
@@ -682,6 +755,9 @@ class GuardService : AccessibilityService() {
             !p.contains("systemui") && !p.contains("inputmethod") && !p.contains("settings")
     }
 
+    // "বন্ধ করুন": ওভারলে সরিয়ে হোমে গিয়ে ঐ অ্যাপের প্রসেস বন্ধ করে দেয়।
+    // ইউজার আবার অ্যাপ খুললে সেটা নতুন করে (শুরু থেকে) চালু হবে।
+    // কোনো অ্যাপ নিজে থেকে আবার চালু হয়ে গেলে তাই কয়েকবার চেষ্টা করা হয়।
     private fun dismissWarning(pkg: String) {
         removeOverlay()
         performGlobalAction(GLOBAL_ACTION_HOME)
