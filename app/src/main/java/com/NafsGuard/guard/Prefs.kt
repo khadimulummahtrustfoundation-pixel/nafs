@@ -52,9 +52,23 @@ object Prefs {
     fun igReel(c: Context) = sp(c).getBoolean("igReel", false)
     fun setIgReel(c: Context, v: Boolean) = sp(c).edit().putBoolean("igReel", v).apply()
 
+    // Browser image/video search restriction preference (server permission required to turn OFF)
+    fun imageVideo(c: Context) = sp(c).getBoolean("imageVideo", false)
+    fun setImageVideo(c: Context, v: Boolean) = sp(c).edit().putBoolean("imageVideo", v).apply()
+
     // ---- Reels অনুমতি: অ্যাডমিন Google Sheet-এ ON করলে ইউজার ব্লক বন্ধ করতে পারবে ----
     fun fbAccess(c: Context) = sp(c).getBoolean("fbAccess", false)
     fun igAccess(c: Context) = sp(c).getBoolean("igAccess", false)
+    fun imageVideoAccess(c: Context) = sp(c).getBoolean("imageVideoAccess", false)
+    fun setImageVideoAccess(c: Context, v: Boolean) = sp(c).edit().putBoolean("imageVideoAccess", v).apply()
     fun setReelAccess(c: Context, fb: Boolean, ig: Boolean) =
         sp(c).edit().putBoolean("fbAccess", fb).putBoolean("igAccess", ig).apply()
+
+    fun disableAllProtection(c: Context) {
+        sp(c).edit().putBoolean("safe", false).putBoolean("fbReel", false)
+            .putBoolean("igReel", false).putBoolean("imageVideo", false)
+            .putBoolean("unlock", false).putBoolean("fbAccess", false)
+            .putBoolean("igAccess", false).putBoolean("imageVideoAccess", false)
+            .putLong("lock", 0L).apply()
+    }
 }
