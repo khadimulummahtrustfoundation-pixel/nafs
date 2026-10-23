@@ -14,7 +14,8 @@ object Api {
         val name: String = "", val days: Int = 0,
         val net: Boolean = false, val approved: Boolean = false,
         val unlock: Boolean = false,
-        val fbAccess: Boolean = false, val igAccess: Boolean = false
+        val fbAccess: Boolean = false, val igAccess: Boolean = false,
+        val imageVideoAccess: Boolean = false
     )
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
@@ -34,7 +35,8 @@ object Api {
             val j = JSONObject(body)
             Res(j.optBoolean("ok"), j.optString("msg"), j.optString("name"),
                 j.optInt("daysLeft"), approved = j.optBoolean("approved"), unlock = j.optBoolean("unlock"),
-                fbAccess = j.optBoolean("fbReel"), igAccess = j.optBoolean("igReel"))
+                fbAccess = j.optBoolean("fbReel"), igAccess = j.optBoolean("igReel"),
+                imageVideoAccess = j.optBoolean("imageVideoAccess", j.optBoolean("imageVideo")))
         } catch (e: Exception) {
             Res(false, "সার্ভার সঠিক উত্তর দেয়নি। Apps Script নতুন কোড দিয়ে Deploy (Anyone) করা হয়েছে কিনা দেখুন।", net = true)
         }
