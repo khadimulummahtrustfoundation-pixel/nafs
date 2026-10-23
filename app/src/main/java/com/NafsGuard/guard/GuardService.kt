@@ -227,6 +227,29 @@ class GuardService : AccessibilityService() {
         return true
     }
 
+    private fun isBrowserPackage(pkg: String): Boolean = pkg in setOf(
+        "com.android.chrome", "com.brave.browser", "com.microsoft.emmx",
+        "com.opera.browser", "com.sec.android.app.sbrowser", "org.mozilla.firefox",
+        "com.duckduckgo.mobile.android", "com.google.android.googlequicksearchbox"
+    )
+
+    private fun clickedImageVideoSearch(e: AccessibilityEvent): Boolean {
+        val labels = mutableListOf<String>()
+        (e.text ?: emptyList<CharSequence>()).forEach { labels.add(it.toString()) }
+        e.contentDescription?.toString()?.let { labels.add(it) }
+        e.source?.let { src ->
+            src.text?.toString()?.let { labels.add(it) }
+            src.contentDescription?.toString()?.let { labels.add(it) }
+        }
+        val normalized = labels.joinToString(" ").trim().lowercase()
+        if (normalized.isBlank()) return false
+        val imageTabs = listOf("images", "image", "ছবি", "চিত্র")
+        val videoTabs = listOf("videos", "video", "ভিডিও")
+        return (imageTabs + videoTabs).any { word ->
+            normalized == word || normalized.startsWith("$word ") || normalized.endsWith(" $word")
+        }
+    }
+
     private fun clickedOurName(e: AccessibilityEvent): Boolean {
         val words = listOf("nafsguard")
         val joined = (e.text ?: emptyList<CharSequence>()).joinToString(" ") { cs -> cs.toString().lowercase() }
@@ -264,6 +287,12 @@ class GuardService : AccessibilityService() {
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // Best-effort browser protection: prevent selecting explicit image/video search tabs.
+                if (Prefs.imageVideo(this) && isBrowserPackage(pkg) && clickedImageVideoSearch(e)) {
+                    handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 80)
+                    toast("🚫 Image and Video Search NafsGuard-এ সীমিত")
+                    return
+                }
                 // সেটিংসে "NafsGuard" লেখায় ক্লিক করলে কিছুক্ষণ পর পেছনে পাঠানো (ভাষা যা-ই হোক)
                 val p = pkg.lowercase()
                 if (Prefs.locked(this) && clickParts.any { p.contains(it) } && clickedOurName(e)) {
@@ -484,7 +513,9 @@ class GuardService : AccessibilityService() {
         lastReelScan = now
 
         // Reels লেখা না থাকলেও ডান পাশের লাইক-কমেন্ট-শেয়ার-সেভ-মোর আইকনের সারি দেখলে প্লেয়ার ধরা হয়
-        val hit = reelSignal(root, pkg) ?: (if (actionColumn(root)) "col:viewer" else null)
+        // Avoid using a generic right-side action column as a Reels signal: Stories, feed posts,
+        // inbox previews and other screens can show the same controls. Require a specific Reels signal.
+        val hit = reelSignal(root, pkg)
         Diag.reelPkg = pkg; Diag.reelHit = hit ?: "-"; Diag.reelAt = now
         if (hit == null) {
             weakHits = 0
