@@ -66,6 +66,14 @@ class MainActivity : Activity() {
         Session.unlocked = false
     }
 
+    // Server revoked login access: fail closed and release NafsGuard's own device restrictions.
+    private fun applyRemoteDisable() {
+        Prefs.disableAllProtection(this)
+        try { DnsVpnService.stop(this) } catch (_: Exception) {}
+        try { Owner.releaseAll(this) } catch (_: Exception) {}
+        stopEverything()
+    }
+
     // সার্ভারে এক্সেস বন্ধ/মেয়াদ শেষ হলে লগআউট (লক থাকলে হবে না)
     private fun recheck() {
         val c = this
@@ -74,14 +82,16 @@ class MainActivity : Activity() {
             if (r.ok) {
                 val old = Prefs.unlockOk(c)
                 val oldFb = Prefs.fbAccess(c); val oldIg = Prefs.igAccess(c)
+                val oldImageVideo = Prefs.imageVideoAccess(c)
                 Prefs.setUnlock(c, r.unlock)
                 Prefs.setReelAccess(c, r.fbAccess, r.igAccess)
-                if (old != r.unlock || oldFb != r.fbAccess || oldIg != r.igAccess)
+                Prefs.setImageVideoAccess(c, r.imageVideoAccess)
+                if (old != r.unlock || oldFb != r.fbAccess || oldIg != r.igAccess || oldImageVideo != r.imageVideoAccess)
                     runOnUiThread { if (!isFinishing && Session.unlocked) build() }
             }
-            if (!r.ok && !r.net && !Prefs.locked(c)) {
+            if (!r.ok && !r.net) {
                 runOnUiThread {
-                    stopEverything()
+                    applyRemoteDisable()
                     Toast.makeText(c, r.msg, Toast.LENGTH_LONG).show(); goLogin()
                 }
             }
@@ -226,6 +236,11 @@ class MainActivity : Activity() {
         rc.addView(Ui.toggleRow(c, "📸", "Instagram Reels ব্লক", "Reels খুললেই নিজে থেকে পেছনে যাবে", igOn) {
             toggleReel(false, igOn)
         })
+        rc.addView(Ui.divider(c))
+        val imageVideoOn = Prefs.imageVideo(c)
+        rc.addView(Ui.toggleRow(c, "🖼️", "Image and Video Access", "ব্রাউজারে ছবি/ভিডিও সার্চ সীমিত করার পরীক্ষামূলক নিয়ন্ত্রণ", imageVideoOn) {
+            toggleImageVideo(imageVideoOn)
+        })
         if ((fbOn || igOn) && !a11y) rc.addView(Ui.dtext(c, "Reels ব্লক কাজ করতে ওপরের \"গার্ড\" চালু থাকতে হবে।", 12.5f, false, Ui.AMBER))
         rc.addView(Ui.dtext(c,
             if (fbOn || igOn) "চালু করা সুইচ বন্ধ করতে অ্যাডমিনের অনুমতি লাগবে।" else "সুইচ চালু করলে Facebook/Instagram-এ Reels খুললেই NafsGuard পেছনে পাঠিয়ে দেবে।",
@@ -342,6 +357,27 @@ class MainActivity : Activity() {
                 } else {
                     toast(if (r.net) r.msg else "অ্যাডমিন এখনো অনুমতি দেননি")
                 }
+                if (!isFinishing && Session.unlocked) build()
+            }
+        }.start()
+    }
+
+    private fun toggleImageVideo(currentlyOn: Boolean) {
+        if (!currentlyOn) {
+            Prefs.setImageVideo(this, true)
+            toast("Image and Video Access নিয়ন্ত্রণ চালু হয়েছে। সমর্থিত ব্রাউজার/সার্চে কার্যকারিতা যাচাই করতে হবে।")
+            build(); return
+        }
+        toast("যাচাই হচ্ছে...")
+        val c = this
+        Thread {
+            val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            runOnUiThread {
+                if (r.ok) Prefs.setImageVideoAccess(c, r.imageVideoAccess)
+                if (r.ok && r.imageVideoAccess) {
+                    Prefs.setImageVideo(c, false)
+                    toast("Image and Video Access বন্ধ হয়েছে")
+                } else toast(if (r.net) r.msg else "অ্যাডমিন এখনো Image and Video Access বন্ধের অনুমতি দেননি")
                 if (!isFinishing && Session.unlocked) build()
             }
         }.start()
