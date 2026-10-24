@@ -273,6 +273,41 @@ class MainActivity : Activity() {
         if (!safe) setup.addView(Ui.dtext(c,
             "সুইচে চাপলে Android একবার VPN অনুমতি চাইবে, OK দিন। এটা শুধু নিরাপদ DNS-এর জন্য, আপনার ইন্টারনেট স্পিড বা ডেটা বদলায় না।",
             12.5f, false, Ui.TXT2))
+        setup.addView(Ui.divider(c))
+
+        // ৫ম সুইচ: VPN Always-on
+        val vpnAlwaysOn = Prefs.vpnAlways(c)
+        setup.addView(Ui.toggleRow(c, "🔒", "VPN সবসময় চালু", "সেইফ সার্চ কেউ বন্ধ করতে পারবে না", vpnAlwaysOn) {
+            if (!vpnAlwaysOn) {
+                if (!Prefs.safe(c)) {
+                    toast("আগে সেইফ সার্চ চালু করুন")
+                } else {
+                    Prefs.setVpnAlways(c, true)
+                    val ownerOk = Owner.setAlwaysOnVpn(c, true)
+                    if (ownerOk) {
+                        toast("VPN Always-on চালু হয়েছে")
+                    } else {
+                        try {
+                            startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS))
+                        } catch (e: Exception) {}
+                        toast("NafsGuard-এর পাশে ⚙️ চেপে Always-on VPN চালু করুন")
+                    }
+                    refreshLater()
+                }
+            } else {
+                if (Prefs.locked(c)) {
+                    toast("লক চালু থাকায় বন্ধ করা যাবে না")
+                } else {
+                    Prefs.setVpnAlways(c, false)
+                    Owner.setAlwaysOnVpn(c, false)
+                    toast("VPN Always-on বন্ধ করা হয়েছে")
+                    refreshLater()
+                }
+            }
+        })
+        if (!vpnAlwaysOn) setup.addView(Ui.dtext(c,
+            "চালু করলে সেইফ সার্চ VPN বন্ধ হয়ে গেলে নিজে থেকে আবার চালু হবে। সাধারণ ফোনে একবার Settings → VPN → NafsGuard → Always-on VPN অন করতে হবে।",
+            12.5f, false, Ui.TXT2))
         root.addView(setup)
 
         // ---- Reels ব্লক ----
