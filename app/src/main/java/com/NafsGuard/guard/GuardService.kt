@@ -34,7 +34,6 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class GuardService : AccessibilityService() {
-
     private var last = 0L
     private var lastToast = 0L
     private var lastNag = 0L
@@ -43,7 +42,6 @@ class GuardService : AccessibilityService() {
     private var lastWinPkg = ""
     private var lastWinClass = ""
     private val handler = Handler(Looper.getMainLooper())
-
     private var lastReelScan = 0L
     private var lastReelBlock = 0L
     private var lastReelToast = 0L
@@ -71,14 +69,12 @@ class GuardService : AccessibilityService() {
     private var awaitSince = 0L
     private var lastRulesTry = 0L
     private fun awaiting(now: Long) = awaitTouch && now - awaitSince < 6000
-
     private val poll = object : Runnable {
         override fun run() {
             try { pollOnce() } catch (e: Exception) {}
             handler.postDelayed(this, 600)
         }
     }
-
     private val urlBars = mapOf(
         "com.android.chrome" to listOf("com.android.chrome:id/url_bar"),
         "com.brave.browser" to listOf("com.brave.browser:id/url_bar"),
@@ -89,14 +85,12 @@ class GuardService : AccessibilityService() {
             "org.mozilla.firefox:id/url_bar_title"),
         "com.duckduckgo.mobile.android" to listOf("com.duckduckgo.mobile.android:id/omnibarTextInput")
     )
-
     private fun shouldScan(pkg: String): Boolean {
         if (pkg == packageName || pkg == "android") return false
         val p = pkg.lowercase()
         return !(p.contains("systemui") || p.contains("launcher") ||
             p.contains("inputmethod") || p.contains("keyboard"))
     }
-
     private val scanLoop = object : Runnable {
         override fun run() {
             try { scanOnce() } catch (e: Exception) {}
@@ -106,20 +100,17 @@ class GuardService : AccessibilityService() {
             handler.postDelayed(this, 1500)
         }
     }
-
     private val mediaWords = setOf("images", "image", "videos", "video", "short videos", "ছবি", "ছবিগুলো", "ভিডিও", "ভিডিওগুলো")
     private val siblingWords = setOf("all", "news", "web", "shopping", "maps", "সব", "খবর", "সংবাদ", "ওয়েব")
     private var lastMediaScan = 0L
     private var lastMediaBlock = 0L
     private var mediaStreak = 0
-
     private fun isBrowser(pkg: String): Boolean {
         if (pkg in urlBars) return true
         val p = pkg.lowercase()
         return listOf("browser", "chrome", "firefox", "fenix", "opera", "brave", "vivaldi", "duckduckgo", "phoenix", "ucmobile")
             .any { p.contains(it) }
     }
-
     private fun isMediaUrl(u0: String): Boolean {
         val u = u0.lowercase()
         if (u.contains("google.")) {
@@ -136,7 +127,6 @@ class GuardService : AccessibilityService() {
         if (u.contains("startpage.com") && (u.contains("cat=pics") || u.contains("cat=video"))) return true
         return false
     }
-
     private fun mediaTabSelected(root: AccessibilityNodeInfo): Boolean {
         var tabSel = false
         var sibling = false
@@ -157,7 +147,6 @@ class GuardService : AccessibilityService() {
         walk(root, 0)
         return tabSel && sibling
     }
-
     private fun clickedMediaTab(src: AccessibilityNodeInfo?): Boolean {
         var n: AccessibilityNodeInfo? = src
         var i = 0
@@ -169,7 +158,6 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
-
     private fun blockMedia(now: Long) {
         if (now - lastMediaBlock < 1500) return
         if (now - lastMediaBlock > 10000) mediaStreak = 0
@@ -180,7 +168,6 @@ class GuardService : AccessibilityService() {
         else performGlobalAction(GLOBAL_ACTION_BACK)
         toast("🚫 NafsGuard: ছবি ও ভিডিও সার্চ বন্ধ আছে")
     }
-
     private fun checkMedia(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!Prefs.media(this) || !isBrowser(pkg)) return false
         val now = System.currentTimeMillis()
@@ -189,7 +176,6 @@ class GuardService : AccessibilityService() {
         if (mediaTabSelected(root)) { blockMedia(now); return true }
         return false
     }
-
     private var lastSync = 0L
     private var syncBusy = false
     private fun syncAccess() {
@@ -217,7 +203,6 @@ class GuardService : AccessibilityService() {
             } finally { syncBusy = false }
         }.start()
     }
-
     private var keepOn = false
     private fun keepAliveTick() {
         val want = Prefs.loggedIn(this)
@@ -250,7 +235,6 @@ class GuardService : AccessibilityService() {
             keepOn = false
         }
     }
-
     private var lastVpnTry = 0L
     private fun vpnWatch() {
         if (!Prefs.loggedIn(this) || !Prefs.safe(this) || DnsVpnService.active) return
@@ -259,7 +243,6 @@ class GuardService : AccessibilityService() {
         lastVpnTry = now
         if (VpnService.prepare(this) == null) DnsVpnService.start(this)
     }
-
     private val sensitiveParts = listOf(
         "settings", "installer", "permissioncontroller", "launcher",
         "securitycenter", "safecenter", "phonemaster", "appmanager"
@@ -271,7 +254,6 @@ class GuardService : AccessibilityService() {
         "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         if (Prefs.loggedIn(this) && Prefs.safe(this) && !DnsVpnService.active &&
@@ -286,19 +268,16 @@ class GuardService : AccessibilityService() {
         handler.postDelayed(liteLoop, 4000)
         try { keepAliveTick() } catch (e: Throwable) {}
     }
-
     override fun onUnbind(intent: Intent?): Boolean {
         handler.removeCallbacksAndMessages(null)
         removeOverlay()
         return super.onUnbind(intent)
     }
-
     private fun adminActive(): Boolean {
         val cn = ComponentName(this, AdminReceiver::class.java)
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         return dpm.isAdminActive(cn)
     }
-
     private fun pollOnce() {
         if (!Prefs.loggedIn(this) || !Prefs.locked(this)) return
         val now = System.currentTimeMillis()
@@ -316,12 +295,10 @@ class GuardService : AccessibilityService() {
         if (deviceAdminGuard(root)) return
         protect(pkg, root)
     }
-
     private fun has(root: AccessibilityNodeInfo, t: String): Boolean {
         val l = root.findAccessibilityNodeInfosByText(t)
         return l != null && l.isNotEmpty()
     }
-
     private fun block() {
         val now = System.currentTimeMillis()
         if (now - lastBlock < 1200) return
@@ -332,7 +309,6 @@ class GuardService : AccessibilityService() {
             toast("🔒 লক চালু, NafsGuard-এর সেটিংস বদলানো যাবে না")
         }
     }
-
     private fun deviceAdminGuard(root: AccessibilityNodeInfo): Boolean {
         if (!Prefs.locked(this)) return false
         if (!lastWinPkg.lowercase().contains("settings")) return false
@@ -350,7 +326,6 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
-
     private fun protect(pkg: String, root: AccessibilityNodeInfo): Boolean {
         if (pkg == packageName || !Prefs.locked(this)) return false
         val p = pkg.lowercase()
@@ -366,7 +341,6 @@ class GuardService : AccessibilityService() {
         block()
         return true
     }
-
     private fun clickedOurName(e: AccessibilityEvent): Boolean {
         val words = listOf("nafsguard")
         val joined = (e.text ?: emptyList<CharSequence>()).joinToString(" ") { cs -> cs.toString().lowercase() }
@@ -374,17 +348,14 @@ class GuardService : AccessibilityService() {
         val src = e.source ?: return false
         return has(src, "NafsGuard")
     }
-
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
         if (!Prefs.loggedIn(this)) return
         val pkg = e.packageName?.toString() ?: return
-
         when (e.eventType) {
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_START, AccessibilityEvent.TYPE_TOUCH_INTERACTION_END,
             AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_VIEW_CLICKED ->
                 if (System.currentTimeMillis() - awaitSince > 500) awaitTouch = false
         }
-
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val cls = e.className?.toString() ?: ""
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
@@ -405,7 +376,6 @@ class GuardService : AccessibilityService() {
             }
         }
         if (pkg == packageName) return
-
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> { checkInput(e.source, pkg); return }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
@@ -433,14 +403,12 @@ class GuardService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_TOUCH_INTERACTION_START,
             AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> return
         }
-
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: pkg
         if (deviceAdminGuard(root)) return
         if (protect(rootPkg, root)) return
         if (checkMedia(root, rootPkg)) return
         if (checkReels(root, rootPkg)) return
-
         val now = System.currentTimeMillis()
         if (now - last < 300) return
         last = now
@@ -458,7 +426,6 @@ class GuardService : AccessibilityService() {
             }
         }
     }
-
     private fun checkInput(n: AccessibilityNodeInfo?, pkg: String) {
         n ?: return
         if (n.isPassword || !n.isEditable) return
@@ -476,13 +443,11 @@ class GuardService : AccessibilityService() {
             showWarning(pkg)
         }
     }
-
     private fun reelEnabled(pkg: String): Boolean = when {
         pkg in fbPkgs -> Prefs.fbReel(this)
         pkg in igPkgs -> Prefs.igReel(this)
         else -> false
     }
-
     private fun isSelectedNode(n: AccessibilityNodeInfo): Boolean {
         if (n.isSelected || n.isChecked) return true
         try { if (n.collectionItemInfo?.isSelected == true) return true } catch (e: Exception) {}
@@ -492,7 +457,6 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
-
     private fun reelSignal(root: AccessibilityNodeInfo, pkg: String): String? {
         val isIg = pkg in igPkgs
         val isLite = pkg == "com.facebook.lite"
@@ -505,7 +469,6 @@ class GuardService : AccessibilityService() {
         var hit: String? = null
         var inbox = false
         val cnt = intArrayOf(0)
-
         fun walk(n: AccessibilityNodeInfo?, depth: Int, inList: Boolean) {
             if (n == null || cnt[0] > 3000 || depth > 70) return
             if (hit != null && dump == null && inbox) return
@@ -516,7 +479,6 @@ class GuardService : AccessibilityService() {
             val nowInList = inList || listClasses.any { cls.contains(it) }
             val idl = id.lowercase()
             if (visible && inboxIds.any { idl.contains(it) }) inbox = true
-
             val labels = ArrayList<String>(3)
             n.contentDescription?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
             n.text?.toString()?.lowercase()?.trim()?.let { if (it.isNotEmpty()) labels.add(it) }
@@ -527,7 +489,6 @@ class GuardService : AccessibilityService() {
             val interesting = idl.contains("video") || idl.contains("reel") || idl.contains("clips")
             var bounds = false
             if (visible && (interesting || (dump != null))) { n.getBoundsInScreen(rect); bounds = true }
-
             if (isLite && visible && bounds && idl.endsWith("video_view") && h > 0) {
                 Diag.liteVideo = (rect.top * 100 / h).toString() + "-" + (rect.bottom * 100 / h) + "% চওড়া " +
                     (rect.width() * 100 / dm.widthPixels) + "%"
@@ -571,7 +532,6 @@ class GuardService : AccessibilityService() {
         if (inbox) return null
         return hit
     }
-
     private fun quickTab(root: AccessibilityNodeInfo, isIg: Boolean, h: Int): String? {
         if (isIg) {
             val ids = root.findAccessibilityNodeInfosByViewId("com.instagram.android:id/clips_tab")
@@ -602,10 +562,8 @@ class GuardService : AccessibilityService() {
         }
         return null
     }
-
     private val actWords = listOf("like", "comment", "share", "save", "more", "send",
         "লাইক", "মন্তব্য", "কমেন্ট", "শেয়ার", "সেভ")
-
     private fun actionColumn(root: AccessibilityNodeInfo): Boolean {
         val dm = resources.displayMetrics
         val w = dm.widthPixels
@@ -643,17 +601,13 @@ class GuardService : AccessibilityService() {
         }
         return distinct >= 3 && (maxX - minX) <= w * 8 / 100
     }
-
     private fun storyOrInbox(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (pkg !in fbPkgs) return false
         val storyIds = listOf("story_viewer", "stories_viewer", "story_tray", "viewer_progress", "story_reaction", "stories_pager")
         val inboxIdsFb = listOf("inbox", "thread", "messenger", "message_list", "chat")
-        
-        // ১. আপডেটকৃত words তালিকা
         val words = listOf("your story", "create story", "add to story", "pause story", "send message",
             "chats", "messages", "type a message", "active now", "your note", "share a note", "reacted",
             "আপনার স্টোরি", "মেসেজ", "চ্যাট")
-
         val cnt = intArrayOf(0)
         var hit = false
         fun walk(n: AccessibilityNodeInfo?, d: Int) {
@@ -673,7 +627,6 @@ class GuardService : AccessibilityService() {
         walk(root, 0)
         return hit
     }
-
     private fun ruleSignal(root: AccessibilityNodeInfo, pkg: String): String? {
         val r = Rules.forPkg(this, pkg) ?: return null
         for (id in r.skipIds) {
@@ -695,7 +648,6 @@ class GuardService : AccessibilityService() {
         }
         return null
     }
-
     private fun geomColumn(root: AccessibilityNodeInfo): Boolean {
         val dm = resources.displayMetrics
         val w = dm.widthPixels
@@ -749,7 +701,6 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
-
     private fun blockReels(now: Long) {
         if (now - lastReelBlock < 900) return
         lastReelBlock = now
@@ -766,7 +717,6 @@ class GuardService : AccessibilityService() {
             toast("🚫 NafsGuard: Reels ব্লক করা আছে")
         }
     }
-
     private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!reelEnabled(pkg)) return false
         val now = System.currentTimeMillis()
@@ -795,19 +745,16 @@ class GuardService : AccessibilityService() {
         blockReels(now)
         return true
     }
-
     private var shotBusy = false
     private var liteSeen = 0
     private var liteLastTop = -1
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-
     private val liteLoop = object : Runnable {
         override fun run() {
             try { liteTick() } catch (e: Exception) { Diag.liteErr = "e:" + (e.message ?: "").take(30) }
             handler.postDelayed(this, 800)
         }
     }
-
     private fun liteTick() {
         if (Build.VERSION.SDK_INT < 30 || shotBusy || warnBusy) return
         if (!Prefs.loggedIn(this)) return
@@ -844,7 +791,6 @@ class GuardService : AccessibilityService() {
             override fun onFailure(code: Int) { shotBusy = false; Diag.liteErr = "shot-fail:$code" }
         })
     }
-
     private fun liteEvaluate(t: com.google.mlkit.vision.text.Text, w: Int, h: Int) {
         val now = System.currentTimeMillis()
         var found = false
@@ -878,8 +824,8 @@ class GuardService : AccessibilityService() {
             ((numRightCount >= 2) || upNext || (addComment && numRightCount >= 1) || (follow && numRightCount >= 1))
         Diag.liteOcr = (if (viewer) "[VIEWER] " else "") + (if (topLines.isEmpty()) "-" else topLines.joinToString("|"))
         Diag.liteOcrAt = now
-        
-        // ২. আপডেটকৃত liteEvaluate শর্ত
+
+        // Updated safe screen check
         var safeScreen = false
         for (b in t.textBlocks) for (ln in b.lines) {
             val box = ln.boundingBox ?: continue
@@ -911,7 +857,6 @@ class GuardService : AccessibilityService() {
             blockReels(now)
         }
     }
-
     private fun scanOnce() {
         if (!Prefs.loggedIn(this) || overlay != null) return
         Diag.loopAt = System.currentTimeMillis()
@@ -925,7 +870,6 @@ class GuardService : AccessibilityService() {
         if (!shouldScan(pkg)) return
         scanPageText(root, pkg)
     }
-
     private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int, count: IntArray) {
         if (n == null || count[0] > 700 || depth > 40) return
         count[0]++
@@ -935,7 +879,6 @@ class GuardService : AccessibilityService() {
         }
         for (i in 0 until n.childCount) collectText(n.getChild(i), sb, depth + 1, count)
     }
-
     private fun scanPageText(root: AccessibilityNodeInfo, pkg: String) {
         val sb = StringBuilder()
         val cnt = intArrayOf(0)
@@ -944,7 +887,6 @@ class GuardService : AccessibilityService() {
         Diag.textNodes = cnt[0]; Diag.textChars = sb.length; Diag.textBad = bad; Diag.textAt = System.currentTimeMillis()
         if (bad >= 2) showWarning(pkg)
     }
-
     private fun blurBitmap(src: Bitmap): Bitmap {
         val sw = maxOf(1, src.width / 28)
         val sh = maxOf(1, src.height / 28)
@@ -952,7 +894,6 @@ class GuardService : AccessibilityService() {
         val tiny = Bitmap.createScaledBitmap(small, maxOf(1, sw / 2), maxOf(1, sh / 2), true)
         return Bitmap.createScaledBitmap(tiny, maxOf(1, src.width / 4), maxOf(1, src.height / 4), true)
     }
-
     private fun showWarning(pkg: String) {
         if (overlay != null || warnBusy) return
         if (Build.VERSION.SDK_INT >= 30) {
@@ -981,7 +922,6 @@ class GuardService : AccessibilityService() {
             buildWarning(pkg, null)
         }
     }
-
     private fun buildWarning(pkg: String, blurred: Bitmap?) {
         if (overlay != null) return
         val c: Context = this
@@ -1037,19 +977,16 @@ class GuardService : AccessibilityService() {
             performGlobalAction(GLOBAL_ACTION_HOME)
         }
     }
-
     private fun removeOverlay() {
         val v = overlay ?: return
         overlay = null
         try { (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v) } catch (e: Exception) {}
     }
-
     private fun canKill(pkg: String): Boolean {
         val p = pkg.lowercase()
         return pkg != packageName && pkg != "android" && !p.contains("launcher") &&
             !p.contains("systemui") && !p.contains("inputmethod") && !p.contains("settings")
     }
-
     private fun dismissWarning(pkg: String) {
         removeOverlay()
         performGlobalAction(GLOBAL_ACTION_HOME)
@@ -1061,8 +998,6 @@ class GuardService : AccessibilityService() {
             }, delay)
         }
     }
-
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
-
     override fun onInterrupt() {}
 }
