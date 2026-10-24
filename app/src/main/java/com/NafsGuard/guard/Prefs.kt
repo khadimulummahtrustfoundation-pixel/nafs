@@ -42,6 +42,10 @@ object Prefs {
     fun safe(c: Context) = sp(c).getBoolean("safe", false)
     fun setSafe(c: Context, v: Boolean) = sp(c).edit().putBoolean("safe", v).apply()
 
+    // VPN Always-on: সিস্টেম সেটিং + (Device Owner হলে) API দিয়ে ধরে রাখা
+    fun vpnAlways(c: Context) = sp(c).getBoolean("vpnAlways", false)
+    fun setVpnAlways(c: Context, v: Boolean) = sp(c).edit().putBoolean("vpnAlways", v).apply()
+
     // অ্যাডমিন Google Sheet-এ UnlockAccess ON করেছে কিনা (সার্ভার থেকে সর্বশেষ জানা মান)
     fun unlockOk(c: Context) = sp(c).getBoolean("unlock", false)
     fun setUnlock(c: Context, v: Boolean) = sp(c).edit().putBoolean("unlock", v).apply()
