@@ -15,6 +15,7 @@ object Access {
         Prefs.setFbReel(c, false)
         Prefs.setIgReel(c, false)
         Prefs.setMedia(c, false)
+        Prefs.setVpnAlways(c, false)
         Prefs.clearLock(c)
         Prefs.setUnlock(c, false)
         try { DnsVpnService.stop(c) } catch (e: Exception) {}
