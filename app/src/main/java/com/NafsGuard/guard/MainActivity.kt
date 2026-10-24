@@ -97,7 +97,6 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // ব্যাটারি অপটিমাইজেশন থেকে বাদ দেওয়ার অনুমতি অ্যাপের ভেতরেই চাওয়া (ইনস্টলের পর প্রথমবার, তারপর ৬ ঘণ্টা পর পর)
     private var battDialogShown = false
     private fun askBattery() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -117,7 +116,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    // Android 13+: নোটিফিকেশনের অনুমতি (সবসময় চালু থাকার নোটিফিকেশন দেখাতে)
     private fun askNotif() {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -125,7 +123,6 @@ class MainActivity : Activity() {
         }
     }
 
-    // ফোনের কোম্পানি অনুযায়ী অটো-স্টার্ট সেটিং খোলা (না পেলে অ্যাপের তথ্য পেজ)
     private fun openAutoStart() {
         val list = listOf(
             "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
@@ -168,7 +165,6 @@ class MainActivity : Activity() {
             s.contains("$packageName/.GuardService", true)
     }
 
-    // সেইফ সার্চ: VPN অনুমতি নিয়ে এক ক্লিকে চালু
     private fun enableSafe() {
         val i = VpnService.prepare(this)
         if (i != null) {
@@ -192,7 +188,6 @@ class MainActivity : Activity() {
         refreshLater()
     }
 
-    // ১ মাসের লক চালুর আগের যাচাই ও নিশ্চিতকরণ
     private fun startLockFlow() {
         val c: Context = this
         if (!a11yOn() || !dpm.isAdminActive(admin)) {
@@ -225,19 +220,17 @@ class MainActivity : Activity() {
             val p = Ui.dp(c, 18); setPadding(p, Ui.dp(c, 24), p, p)
         }
 
-        // ---- উপরের অংশ: লোগো + সুরক্ষার অবস্থা ----
         root.addView(Ui.heroLogo(c, 96))
         root.addView(Ui.dtext(c, "NafsGuard", 24f, true, Ui.NEON).apply {
             gravity = android.view.Gravity.CENTER
-            setOnClickListener { if (++taps >= 5) { taps = 0; Diag.show = !Diag.show; build() } }   // লুকানো স্ট্যাটাস: ৫ বার চাপুন
+            setOnClickListener { if (++taps >= 5) { taps = 0; Diag.show = !Diag.show; build() } }
         })
         root.addView(Ui.dtext(c, if (allOk) "🛡️ আপনি সুরক্ষিত আছেন" else "⚠️ সুরক্ষা সম্পূর্ণ হয়নি", 20f, true,
             if (allOk) Ui.TXT else Ui.AMBER).apply { gravity = android.view.Gravity.CENTER })
         root.addView(Ui.dtext(c,
-            "স্বাগতম, ${Prefs.name(c)}\n" + if (allOk) "নিরাপদ ও পরিচ্ছন্ন অনলাইন অভিজ্ঞতা উপভোগ করুন।" else "নিচের সুইচগুলো চালু করুন।",
+            "স্বাগতম, ${Prefs.name(c)}\n" + if (allOk) "নিরাপদ ও পরিচ্ছন্ন অনলাইন অভিজ্ঞতা উপভোগ করুন。" else "নিচের সুইচগুলো চালু করুন।",
             14f, false, Ui.TXT2).apply { gravity = android.view.Gravity.CENTER })
 
-        // ---- সুরক্ষা সেটআপ (সুইচে চাপ দিলেই ওই সেটিং খুলবে) ----
         val setup = Ui.dcard(c)
         setup.addView(Ui.dtext(c, "সুরক্ষা সেটআপ", 17f, true))
 
@@ -245,7 +238,7 @@ class MainActivity : Activity() {
             if (!a11y) openExternal(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) else toast("গার্ড চালু আছে")
         })
         if (!a11y) setup.addView(Ui.dtext(c,
-            "সুইচে চাপ দিয়ে NafsGuard খুঁজে চালু করুন। Android 13+ এ অপশন ধূসর থাকলে: Settings → Apps → NafsGuard → ⋮ → Allow restricted settings।",
+            "সুইচে চাপ দিয়ে NafsGuard খুঁজে চালু করুন। Android 13+ এ অপশন ধূসর থাকলে: Settings → Apps → NafsGuard → ⋮ → Allow restricted settings。",
             12.5f, false, Ui.TXT2))
         setup.addView(Ui.divider(c))
 
@@ -275,7 +268,6 @@ class MainActivity : Activity() {
             12.5f, false, Ui.TXT2))
         setup.addView(Ui.divider(c))
 
-        // ৫ম সুইচ: VPN Always-on
         val vpnAlwaysOn = Prefs.vpnAlways(c)
         setup.addView(Ui.toggleRow(c, "🔒", "VPN সবসময় চালু", "সেইফ সার্চ কেউ বন্ধ করতে পারবে না", vpnAlwaysOn) {
             if (!vpnAlwaysOn) {
@@ -310,7 +302,6 @@ class MainActivity : Activity() {
             12.5f, false, Ui.TXT2))
         root.addView(setup)
 
-        // ---- Reels ব্লক ----
         val fbOn = Prefs.fbReel(c)
         val igOn = Prefs.igReel(c)
         val rc = Ui.dcard(c)
@@ -328,7 +319,6 @@ class MainActivity : Activity() {
             12.5f, false, Ui.TXT2))
         root.addView(rc)
 
-        // ---- ছবি ও ভিডিও সার্চ ব্লক ----
         val mOn = Prefs.media(c)
         val mc = Ui.dcard(c)
         mc.addView(Ui.dtext(c, "ছবি ও ভিডিও সার্চ ব্লক", 17f, true))
@@ -341,7 +331,6 @@ class MainActivity : Activity() {
             12.5f, false, Ui.TXT2))
         root.addView(mc)
 
-        // ---- সবসময় চালু রাখার সেটিং ----
         val kc = Ui.dcard(c)
         kc.addView(Ui.dtext(c, "সবসময় চালু রাখুন", 17f, true))
         kc.addView(Ui.dtext(c,
@@ -357,7 +346,6 @@ class MainActivity : Activity() {
             12.5f, false, Ui.TXT2))
         root.addView(kc)
 
-        // ---- পরীক্ষার স্ট্যাটাস (লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
         val dc = Ui.dcard(c)
         dc.addView(Ui.dtext(c, "🔧 পাহারার স্ট্যাটাস (শুধু পরীক্ষার জন্য)", 16f, true))
         val nowT = System.currentTimeMillis()
@@ -378,7 +366,6 @@ class MainActivity : Activity() {
         dc.addView(Ui.dlink(c, "স্ট্যাটাস রিফ্রেশ") { build() })
         if (Diag.show) root.addView(dc)
 
-        // ---- শব্দ তালিকা ----
         val wc = Ui.dcard(c)
         wc.addView(Ui.dtext(c, "নিজের ব্লক শব্দ", 17f, true))
         val input = Ui.dedit(c, "শব্দ লিখুন")
@@ -411,7 +398,6 @@ class MainActivity : Activity() {
         if (locked) wc.addView(Ui.dtext(c, "লক চালু থাকায় শব্দ মুছা যাবে না (যোগ করা যাবে)।", 12.5f, false, Ui.TXT2))
         root.addView(wc)
 
-        // ---- লক ----
         val lc = Ui.dcard(c)
         lc.addView(Ui.dtext(c, "১ মাসের লক", 17f, true))
         val isOwner = Owner.isOwner(c)
@@ -446,7 +432,6 @@ class MainActivity : Activity() {
         setContentView(ScrollView(c).apply { background = Ui.bg(); addView(root) })
     }
 
-    // Reels সুইচ: চালু করা সবসময় যাবে; বন্ধ করতে অ্যাডমিন শিটে অনুমতি (ON) লাগবে
     private fun toggleReel(fb: Boolean, currentlyOn: Boolean) {
         val c = this
         val name = if (fb) "Facebook Reels" else "Instagram Reels"
@@ -473,7 +458,6 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // ছবি-ভিডিও সার্চ সুইচ: চালু করা সবসময় যাবে; বন্ধ করতে শিটে "Image and Video Access" ON লাগবে
     private fun toggleMedia(currentlyOn: Boolean) {
         val c = this
         if (!currentlyOn) {
@@ -498,12 +482,11 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // বাটন চাপলে সার্ভার থেকে আবার যাচাই করে (পুরোনো সেভ করা মানের ওপর ভরসা করে না)
     private fun requestUnlock() {
         toast("যাচাই হচ্ছে...")
         val c = this
         Thread {
-            val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            val r =Api.login(Prefs.phone(c), Prefs.pass(c))
             runOnUiThread {
                 if (r.ok && r.unlock) doUnlock()
                 else {
