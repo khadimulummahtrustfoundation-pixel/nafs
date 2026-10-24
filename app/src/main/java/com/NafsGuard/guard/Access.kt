@@ -24,7 +24,7 @@ object Access {
             val dpm = c.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             dpm.removeActiveAdmin(ComponentName(c, AdminReceiver::class.java))
         } catch (e: Exception) {}
-        Prefs.logout(c)          // লগআউট হলে GuardService আর কিছু ব্লক করে না
+        Prefs.logout(c)         // লগআউট হলে GuardService আর কিছু ব্লক করে না
         Session.unlocked = false
     }
 }
