@@ -60,7 +60,9 @@ class GuardService : AccessibilityService() {
         "fullscreen_video_player", "fb_shorts"
     )
     private val inboxIds = listOf("direct_inbox", "inbox_refreshable", "row_inbox", "inbox_container",
-        "direct_thread", "thread_list", "message_list", "row_thread")
+        "direct_thread", "thread_list", "message_list", "row_thread", "thread_view", "messenger",
+        "chat_thread", "conversation", "msg_list", "messages_list", "inbox_fragment",
+        "direct_thread_content", "message_composer", "composer_container")
     private val listClasses = listOf("recyclerview", "listview", "scrollview")
     private var weakHits = 0
     private var lastWeakAt = 0L
@@ -157,53 +159,105 @@ class GuardService : AccessibilityService() {
     private fun mediaTabSelected(root: AccessibilityNodeInfo): Boolean {
         var tabSel = false
         var sibling = false
+        var mediaLabelCount = 0
         val cnt = intArrayOf(0)
         fun walk(n: AccessibilityNodeInfo?, d: Int) {
-            if (n == null || cnt[0] > 2500 || d > 70 || (tabSel && sibling)) return
+            if (n == null || cnt[0] > 2500 || d > 70) return
             cnt[0]++
             val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
             val b = n.text?.toString()?.lowercase()?.trim() ?: ""
+            val visible = n.isVisibleToUser
             for (l0 in listOf(a, b)) {
                 if (l0.isEmpty() || l0.length > 40) continue
-                val l = l0.removeSuffix(", selected").removeSuffix(" selected").trim()
+                val l = l0.removeSuffix(", selected").removeSuffix(" selected")
+                    .removeSuffix(", selected.").removeSuffix(" নির্বাচিত").trim()
                 if (l in siblingWords) sibling = true
-                if (l in mediaWords && (isSelectedNode(n) || l0.contains("selected") || l0.contains("current"))) tabSel = true
+                if (l in mediaWords) {
+                    mediaLabelCount++
+                    if (visible && (isSelectedNode(n) || l0.contains("selected") ||
+                            l0.contains("current") || l0.contains("নির্বাচিত"))) {
+                        tabSel = true
+                    }
+                }
             }
             for (i in 0 until n.childCount) walk(n.getChild(i), d + 1)
         }
         walk(root, 0)
-        return tabSel && sibling
+        // sibling থাকলে নিশ্চিত; না থাকলেও selected media ট্যাব থাকলে ব্লক (BACK-এর পর sibling হারালেও)
+        return tabSel && (sibling || mediaLabelCount >= 1)
     }
 
     private fun clickedMediaTab(src: AccessibilityNodeInfo?): Boolean {
         var n: AccessibilityNodeInfo? = src
         var i = 0
-        while (n != null && i < 4) {
+        while (n != null && i < 6) {
             val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
             val b = n.text?.toString()?.lowercase()?.trim() ?: ""
-            if (a in mediaWords || b in mediaWords) return true
+            val l = a.ifEmpty { b }
+            if (l in mediaWords || mediaWords.any { l.startsWith(it) }) return true
             n = n.parent; i++
         }
         return false
     }
 
     private fun blockMedia(now: Long) {
-        if (now - lastMediaBlock < 1500) return
+        if (now - lastMediaBlock < 900) return
         if (now - lastMediaBlock > 10000) mediaStreak = 0
         lastMediaBlock = now
         mediaStreak++
         Diag.lastBlock = "media-search"; Diag.lastBlockAt = now
-        if (mediaStreak >= 3) { mediaStreak = 0; performGlobalAction(GLOBAL_ACTION_HOME) }
-        else performGlobalAction(GLOBAL_ACTION_BACK)
-        toast("🚫 NafsGuard: ছবি ও ভিডিও সার্চ বন্ধ আছে")
+        // প্রথমে BACK; বারবার একই ট্যাবে থাকলে HOME
+        if (mediaStreak >= 3) {
+            mediaStreak = 0
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } else {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+        if (now - lastToast > 2000) {
+            lastToast = now
+            toast("🚫 NafsGuard: ছবি ও ভিডিও সার্চ বন্ধ আছে")
+        }
+        // BACK-এর পর ট্যাব সিলেক্টেড থাকলে আবার চেক — আটকে যাওয়া রোধ
+        handler.postDelayed({
+            try {
+                val r = rootInActiveWindow ?: return@postDelayed
+                val p = r.packageName?.toString() ?: return@postDelayed
+                if (Prefs.media(this) && isBrowser(p) && mediaTabSelected(r)) {
+                    blockMedia(System.currentTimeMillis())
+                }
+            } catch (_: Exception) {}
+        }, 700)
+        handler.postDelayed({
+            try {
+                val r = rootInActiveWindow ?: return@postDelayed
+                val p = r.packageName?.toString() ?: return@postDelayed
+                if (Prefs.media(this) && isBrowser(p) && (mediaTabSelected(r) || urlIsMedia(r, p))) {
+                    blockMedia(System.currentTimeMillis())
+                }
+            } catch (_: Exception) {}
+        }, 1600)
+    }
+
+    private fun urlIsMedia(root: AccessibilityNodeInfo, pkg: String): Boolean {
+        urlBars[pkg]?.forEach { id ->
+            root.findAccessibilityNodeInfosByViewId(id).forEach { n ->
+                val t = n.text?.toString() ?: return@forEach
+                if (isMediaUrl(t)) return true
+            }
+        }
+        return false
     }
 
     private fun checkMedia(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!Prefs.media(this) || !isBrowser(pkg)) return false
         val now = System.currentTimeMillis()
-        if (now - lastMediaScan < 600) return false
+        if (now - lastMediaScan < 400) return false
         lastMediaScan = now
-        if (mediaTabSelected(root)) { blockMedia(now); return true }
+        // ট্যাব সিলেক্টেড বা URL ইমেজ/ভিডিও — দুটোতেই ব্লক
+        if (mediaTabSelected(root) || urlIsMedia(root, pkg)) {
+            blockMedia(now)
+            return true
+        }
         return false
     }
 
@@ -269,11 +323,16 @@ class GuardService : AccessibilityService() {
 
     private var lastVpnTry = 0L
     private fun vpnWatch() {
-        if (!Prefs.loggedIn(this) || !Prefs.safe(this) || DnsVpnService.active) return
+        if (!Prefs.loggedIn(this) || !Prefs.safe(this)) return
+        if (DnsVpnService.active) return
         val now = System.currentTimeMillis()
-        if (now - lastVpnTry < 5000) return
+        // Always-on মোডে আরও ঘন ঘন চেষ্টা
+        val gap = if (Prefs.vpnAlways(this)) 2000L else 5000L
+        if (now - lastVpnTry < gap) return
         lastVpnTry = now
-        if (VpnService.prepare(this) == null) DnsVpnService.start(this)
+        if (VpnService.prepare(this) == null) {
+            try { DnsVpnService.start(this) } catch (_: Exception) {}
+        }
     }
 
     private val sensitiveParts = listOf(
@@ -407,9 +466,23 @@ class GuardService : AccessibilityService() {
                     val tNow = System.currentTimeMillis()
                     Diag.reelWin = cls
                     val cl = cls.lowercase()
-                    val skip = listOf("share", "direct", "message", "messag", "inbox", "chat", "thread",
-                        "story", "stories", "compos", "create", "upload", "camera")
-                    if (cl.contains("reel") && skip.none { cl.contains(it) }) {
+                    // Story / message / composer / camera ইত্যাদি কখনো রিল হিসেবে ব্লক করবে না
+                    val skip = listOf(
+                        "share", "direct", "message", "messag", "inbox", "chat", "thread",
+                        "story", "stories", "compos", "create", "upload", "camera",
+                        "composer", "messenger", "conversation", "comment", "reply",
+                        "live", "room", "group", "friend", "profile", "search",
+                        "notification", "marketplace", "watchlist"
+                    )
+                    // শুধু স্পষ্ট রিল/শর্টস ভিউয়ার ক্লাস — সাধারণ "reel" শব্দ থাকলেই ব্লক নয় (স্টোরি ফলস পজিটিভ এড়াতে)
+                    val viewerHints = listOf(
+                        "reelviewer", "reelsviewer", "clipsviewer", "clips_viewer",
+                        "reel_viewer", "reels_viewer", "shortsvideo", "fbshorts",
+                        "fullscreenvideo", "fullscreen_video"
+                    )
+                    val isViewer = viewerHints.any { cl.replace(".", "").replace("_", "").contains(it.replace("_", "")) } ||
+                        (cl.contains("reel") && (cl.contains("viewer") || cl.contains("player") || cl.contains("full")))
+                    if (isViewer && skip.none { cl.contains(it) }) {
                         Diag.reelPkg = pkg; Diag.reelHit = "win:" + cls.substringAfterLast('.'); Diag.reelAt = tNow
                         Diag.lastBlock = pkg.substringAfterLast('.') + " " + Diag.reelHit; Diag.lastBlockAt = tNow
                         blockReels(tNow)
@@ -429,7 +502,15 @@ class GuardService : AccessibilityService() {
                         val dmx = resources.displayMetrics
                         val cy = (r.top + r.bottom) / 2
                         val slot = ((r.left + r.right) / 2) * 6 / maxOf(1, dmx.widthPixels)
-                        if (cy < dmx.heightPixels * 14 / 100 && slot != 3) liteGraceUntil = System.currentTimeMillis() + 3500
+                        // টপ বার (মেসেজ/নোটিফ/মেনু) ক্লিকে রিল ব্লক থেকে অব্যাহতি — মেসেজ খোলা রাখতে
+                        if (cy < dmx.heightPixels * 18 / 100) liteGraceUntil = System.currentTimeMillis() + 6000
+                        // মেসেজ/চ্যাট লেবেল থাকলেও grace
+                        val desc = (src.contentDescription?.toString() ?: "").lowercase() + " " +
+                            (src.text?.toString() ?: "").lowercase()
+                        if (desc.contains("message") || desc.contains("মেসেজ") || desc.contains("chat") ||
+                            desc.contains("inbox") || desc.contains("messenger")) {
+                            liteGraceUntil = System.currentTimeMillis() + 8000
+                        }
                     }
                 }
                 if (Prefs.media(this) && isBrowser(pkg) && clickedMediaTab(e.source)) {
@@ -442,9 +523,11 @@ class GuardService : AccessibilityService() {
                 return
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                if (reelEnabled(rootPkgOf(e))) {
-                    val r = rootInActiveWindow
-                    if (r != null) checkReels(r, r.packageName?.toString() ?: pkg)
+                val r = rootInActiveWindow
+                if (r != null) {
+                    val rp = r.packageName?.toString() ?: pkg
+                    if (Prefs.media(this) && isBrowser(rp)) checkMedia(r, rp)
+                    if (reelEnabled(rp)) checkReels(r, rp)
                 }
                 return
             }
@@ -550,9 +633,11 @@ class GuardService : AccessibilityService() {
                 Diag.liteVideoAt = System.currentTimeMillis()
             }
             if (hit == null && visible) {
-                if (isIg && sel && idl.endsWith("clips_tab")) hit = "tab:clips_tab"
-                else if (bounds && rect.height() >= h * 50 / 100 && rect.width() >= dm.widthPixels * 70 / 100 &&
-                    strongReelIds.any { idl.contains(it) } && !idl.contains("story") && !idl.contains("direct")) {
+                // ট্যাব ক্লিক/সিলেক্টে ব্লক করবে না — শুধু আসল রিল/ভিডিও ভিউয়ার
+                if (bounds && rect.height() >= h * 50 / 100 && rect.width() >= dm.widthPixels * 70 / 100 &&
+                    strongReelIds.any { idl.contains(it) } &&
+                    !idl.contains("story") && !idl.contains("direct") && !idl.contains("message") &&
+                    !idl.contains("inbox") && !idl.contains("thread") && !idl.contains("composer")) {
                     hit = "id:" + idl.substringAfter(":id/")
                 }
                 else if (interesting && bounds && rect.height() >= bigH && rect.height() > rect.width() &&
@@ -561,7 +646,12 @@ class GuardService : AccessibilityService() {
                 }
                 else for (l in labels) {
                     if (l.length > 40) continue
+                    // স্টোরি / মেসেজ / ক্যামেরা লেবেল এড়িয়ে চলা
+                    if (l.contains("story") || l.contains("স্টোরি") || l.contains("message") ||
+                        l.contains("মেসেজ") || l.contains("inbox") || l.contains("chat") ||
+                        l.contains("direct") || l.contains("camera") || l.contains("composer")) continue
                     if (reelWords.none { l.startsWith(it) }) continue
+                    // ট্যাব সিলেক্টে ব্লক নয় — শুধু উপরের ছোট লেবেল (weak) রাখা হয়েছে, ট্যাব নয়
                     val selected = sel || l.contains("selected") || l.contains("নির্বাচিত")
                     var tabLike = idl.contains("tab") || l.contains("tab") || l.contains("ট্যাব")
                     if (selected && !tabLike) {
@@ -569,7 +659,8 @@ class GuardService : AccessibilityService() {
                         tabLike = rect.height() in 1 until (h * 12 / 100) &&
                             (rect.top > h * 80 / 100 || rect.bottom < h * 20 / 100)
                     }
-                    if (selected && tabLike) { hit = "sel:$l"; break }
+                    // selected + tabLike → ইগনোর (ট্যাব ক্লিকে আটকাবে না)
+                    if (selected && tabLike) continue
                     if (!nowInList && l in reelExact) {
                         if (!bounds) { n.getBoundsInScreen(rect); bounds = true }
                         if (rect.height() > 0 && rect.top < topLimit) { hit = "top:$l"; break }
@@ -593,33 +684,7 @@ class GuardService : AccessibilityService() {
     }
 
     private fun quickTab(root: AccessibilityNodeInfo, isIg: Boolean, h: Int): String? {
-        if (isIg) {
-            val ids = root.findAccessibilityNodeInfosByViewId("com.instagram.android:id/clips_tab")
-            if (ids != null) for (n in ids) if (n.isVisibleToUser && isSelectedNode(n)) return "tab:clips_tab"
-        }
-        val rect = Rect()
-        for (q in listOf("reel", "রিল")) {
-            val list = root.findAccessibilityNodeInfosByText(q) ?: continue
-            var i = 0
-            for (n in list) {
-                if (i++ > 40) break
-                if (!n.isVisibleToUser) continue
-                val a = n.contentDescription?.toString()?.lowercase()?.trim() ?: ""
-                val b = n.text?.toString()?.lowercase()?.trim() ?: ""
-                val l = if (a.isNotEmpty()) a else b
-                if (l.isEmpty() || l.length > 40 || reelWords.none { l.startsWith(it) }) continue
-                val selected = isSelectedNode(n) || l.contains("selected") || l.contains("নির্বাচিত")
-                if (!selected) continue
-                val idl = n.viewIdResourceName?.lowercase() ?: ""
-                var tabLike = idl.contains("tab") || l.contains("tab") || l.contains("ট্যাব")
-                if (!tabLike) {
-                    n.getBoundsInScreen(rect)
-                    tabLike = rect.height() in 1 until (h * 12 / 100) &&
-                        (rect.top > h * 80 / 100 || rect.bottom < h * 20 / 100)
-                }
-                if (tabLike) return "sel:$l"
-            }
-        }
+        // ট্যাব ক্লিক/সিলেক্টে আর ব্লক করা হবে না। শুধু আসল রিল ভিউয়ার খোলা হলে ব্লক।
         return null
     }
 
@@ -683,6 +748,8 @@ class GuardService : AccessibilityService() {
     private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!reelEnabled(pkg)) return false
         val now = System.currentTimeMillis()
+        // FB Lite: মেসেজ/টপ-বার ক্লিকের পর কিছুক্ষণ রিল ব্লক বন্ধ (মেসেজ খোলা রাখতে)
+        if (pkg == "com.facebook.lite" && now < liteGraceUntil) return false
         if (now - lastReelScan < 350) return false
         lastReelScan = now
         val hit = reelSignal(root, pkg) ?: (if (actionColumn(root)) "col:viewer" else null)
@@ -692,12 +759,16 @@ class GuardService : AccessibilityService() {
             if (now - lastReelBlock > 8000) reelStreak = 0
             return false
         }
+        // ট্যাব সিলেক্ট / শুধু ট্যাব লেবেল — কখনো ব্লক নয়
+        if (hit.startsWith("tab:") || hit.startsWith("sel:")) return false
+        // weak সিগন্যাল (উপরের লেবেল বা সাইড অ্যাকশন কলাম) — স্ক্রল/কনফার্ম দরকার
         if (hit.startsWith("top:") || hit.startsWith("col:")) {
             if (now - lastWeakAt > 2500) weakHits = 0
             lastWeakAt = now
             weakHits++
             if (weakHits < 2) return false
         }
+        // strong id:/big: বা কনফার্মড weak → ব্লক (রিল/ভিডিও সেকশন খোলা)
         Diag.lastBlock = pkg.substringAfterLast('.') + " " + hit; Diag.lastBlockAt = now
         blockReels(now)
         return true
