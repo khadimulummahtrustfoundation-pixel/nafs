@@ -61,8 +61,7 @@ class LoginActivity : Activity() {
                     if (r.ok || offlineOk) {
                         if (r.ok) {
                             Prefs.setLogin(c, p, w, r.name.ifEmpty { Prefs.name(c) })
-                            Prefs.setUnlock(c, r.unlock)
-                            Prefs.setReelAccess(c, r.fbAccess, r.igAccess)
+                                                        Prefs.applyServer(c, r)
                         }
                         Session.unlocked = true
                         startActivity(Intent(c, MainActivity::class.java)); finish()
