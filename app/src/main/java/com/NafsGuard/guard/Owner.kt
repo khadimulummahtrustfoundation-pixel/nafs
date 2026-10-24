@@ -41,4 +41,14 @@ object Owner {
         }
         return try { d.clearDeviceOwnerApp(c.packageName); true } catch (e: Exception) { false }
     }
+
+    /** Device Owner হলে Always-on VPN সেট/খোল। সফল হলে true */
+    fun setAlwaysOnVpn(c: Context, enable: Boolean): Boolean {
+        if (!isOwner(c)) return false
+        if (Build.VERSION.SDK_INT < 24) return false
+        return try {
+            dpm(c).setAlwaysOnVpnPackage(cn(c), if (enable) c.packageName else null, true)
+            true
+        } catch (e: Exception) { false }
+    }
 }
