@@ -42,10 +42,6 @@ object Prefs {
     fun safe(c: Context) = sp(c).getBoolean("safe", false)
     fun setSafe(c: Context, v: Boolean) = sp(c).edit().putBoolean("safe", v).apply()
 
-    // VPN Always-on: সিস্টেম সেটিং + (Device Owner হলে) API দিয়ে ধরে রাখা
-    fun vpnAlways(c: Context) = sp(c).getBoolean("vpnAlways", false)
-    fun setVpnAlways(c: Context, v: Boolean) = sp(c).edit().putBoolean("vpnAlways", v).apply()
-
     // অ্যাডমিন Google Sheet-এ UnlockAccess ON করেছে কিনা (সার্ভার থেকে সর্বশেষ জানা মান)
     fun unlockOk(c: Context) = sp(c).getBoolean("unlock", false)
     fun setUnlock(c: Context, v: Boolean) = sp(c).edit().putBoolean("unlock", v).apply()
@@ -79,4 +75,10 @@ object Prefs {
     // ব্যাটারি অনুমতি চাওয়ার সর্বশেষ সময় (বারবার বিরক্ত না করতে)
     fun battAskedAt(c: Context) = sp(c).getLong("battAsk", 0L)
     fun setBattAskedAt(c: Context, t: Long) = sp(c).edit().putLong("battAsk", t).apply()
+
+    // ---- সার্ভার থেকে নামানো স্ক্রিন-চেনার নিয়ম ----
+    fun rulesJson(c: Context) = sp(c).getString("rules", "") ?: ""
+    fun setRulesJson(c: Context, v: String) = sp(c).edit().putString("rules", v).apply()
+    fun rulesAt(c: Context) = sp(c).getLong("rulesAt", 0L)
+    fun setRulesAt(c: Context, t: Long) = sp(c).edit().putLong("rulesAt", t).apply()
 }
