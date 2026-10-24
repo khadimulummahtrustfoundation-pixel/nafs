@@ -42,6 +42,8 @@ class MainActivity : Activity() {
         recheck()
         ensureSafe()
         if (Prefs.locked(this)) Owner.applyLock(this)
+        askBattery()
+        askNotif()
     }
 
     override fun onStop() {
@@ -66,36 +68,85 @@ class MainActivity : Activity() {
         Session.unlocked = false
     }
 
-    // Server revoked login access: fail closed and release NafsGuard's own device restrictions.
-    private fun applyRemoteDisable() {
-        Prefs.disableAllProtection(this)
-        try { DnsVpnService.stop(this) } catch (_: Exception) {}
-        try { Owner.releaseAll(this) } catch (_: Exception) {}
-        stopEverything()
-    }
-
-    // সার্ভারে এক্সেস বন্ধ/মেয়াদ শেষ হলে লগআউট (লক থাকলে হবে না)
+    // সার্ভারে এক্সেস বন্ধ করলে সব সুইচ বন্ধ ও লগআউট (লক থাকলেও)
     private fun recheck() {
         val c = this
         Thread {
             val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            if (r.off) {
+                runOnUiThread {
+                    Access.disableAll(c)
+                    Toast.makeText(c, "অ্যাডমিন অ্যাক্সেস বন্ধ করেছেন, NafsGuard এখন নিষ্ক্রিয়", Toast.LENGTH_LONG).show()
+                    goLogin()
+                }
+                return@Thread
+            }
             if (r.ok) {
                 val old = Prefs.unlockOk(c)
-                val oldFb = Prefs.fbAccess(c); val oldIg = Prefs.igAccess(c)
-                val oldImageVideo = Prefs.imageVideoAccess(c)
-                Prefs.setUnlock(c, r.unlock)
-                Prefs.setReelAccess(c, r.fbAccess, r.igAccess)
-                Prefs.setImageVideoAccess(c, r.imageVideoAccess)
-                if (old != r.unlock || oldFb != r.fbAccess || oldIg != r.igAccess || oldImageVideo != r.imageVideoAccess)
+                val oldFb = Prefs.fbAccess(c); val oldIg = Prefs.igAccess(c); val oldMd = Prefs.mediaAccess(c)
+                Prefs.applyServer(c, r)
+                if (old != r.unlock || oldFb != r.fbAccess || oldIg != r.igAccess || oldMd != r.mediaAccess)
                     runOnUiThread { if (!isFinishing && Session.unlocked) build() }
             }
-            if (!r.ok && !r.net) {
+            if (!r.ok && !r.net && !Prefs.locked(c)) {
                 runOnUiThread {
-                    applyRemoteDisable()
+                    stopEverything()
                     Toast.makeText(c, r.msg, Toast.LENGTH_LONG).show(); goLogin()
                 }
             }
         }.start()
+    }
+
+    // ব্যাটারি অপটিমাইজেশন থেকে বাদ দেওয়ার অনুমতি অ্যাপের ভেতরেই চাওয়া (ইনস্টলের পর প্রথমবার, তারপর ৬ ঘণ্টা পর পর)
+    private var battDialogShown = false
+    private fun askBattery() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName) || battDialogShown || isFinishing) return
+        val now = System.currentTimeMillis()
+        if (now - Prefs.battAskedAt(this) < 6L * 3600 * 1000) return
+        battDialogShown = true
+        Prefs.setBattAskedAt(this, now)
+        AlertDialog.Builder(this)
+            .setTitle("সবসময় চালু রাখার অনুমতি")
+            .setMessage("ফোন ব্যাকগ্রাউন্ডে NafsGuard বন্ধ করে দিলে সুরক্ষা থেমে যায়। পরের পর্দায় \"Allow\" চাপলে ব্যাটারি সেভার আর NafsGuard-কে বন্ধ করবে না।")
+            .setPositiveButton("চালু করুন") { _, _ ->
+                openExternal(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton("পরে", null)
+            .show()
+    }
+
+    // Android 13+: নোটিফিকেশনের অনুমতি (সবসময় চালু থাকার নোটিফিকেশন দেখাতে)
+    private fun askNotif() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 91) } catch (e: Exception) {}
+        }
+    }
+
+    // ফোনের কোম্পানি অনুযায়ী অটো-স্টার্ট সেটিং খোলা (না পেলে অ্যাপের তথ্য পেজ)
+    private fun openAutoStart() {
+        val list = listOf(
+            "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.startupapp.StartupAppListActivity",
+            "com.oppo.safe" to "com.oppo.safe.permission.startup.StartupAppListActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+            "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.transsion.phonemaster" to "com.cyin.himgr.autostart.AutoStartActivity",
+            "com.samsung.android.lool" to "com.samsung.android.sm.ui.battery.BatteryActivity"
+        )
+        for ((pk, cl) in list) {
+            val i = Intent().setComponent(ComponentName(pk, cl))
+            if (packageManager.resolveActivity(i, 0) != null) {
+                Session.keep = true
+                try { startActivity(i); return } catch (e: Exception) { Session.keep = false }
+            }
+        }
+        openExternal(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:$packageName")))
+        toast("এখানে \"Battery\" বা \"Autostart\" খুঁজে সবসময় চালু / Unrestricted করুন")
     }
 
     private fun ensureSafe() {
@@ -236,16 +287,40 @@ class MainActivity : Activity() {
         rc.addView(Ui.toggleRow(c, "📸", "Instagram Reels ব্লক", "Reels খুললেই নিজে থেকে পেছনে যাবে", igOn) {
             toggleReel(false, igOn)
         })
-        rc.addView(Ui.divider(c))
-        val imageVideoOn = Prefs.imageVideo(c)
-        rc.addView(Ui.toggleRow(c, "🖼️", "Image and Video Access", "ব্রাউজারে ছবি/ভিডিও সার্চ সীমিত করার পরীক্ষামূলক নিয়ন্ত্রণ", imageVideoOn) {
-            toggleImageVideo(imageVideoOn)
-        })
         if ((fbOn || igOn) && !a11y) rc.addView(Ui.dtext(c, "Reels ব্লক কাজ করতে ওপরের \"গার্ড\" চালু থাকতে হবে।", 12.5f, false, Ui.AMBER))
         rc.addView(Ui.dtext(c,
             if (fbOn || igOn) "চালু করা সুইচ বন্ধ করতে অ্যাডমিনের অনুমতি লাগবে।" else "সুইচ চালু করলে Facebook/Instagram-এ Reels খুললেই NafsGuard পেছনে পাঠিয়ে দেবে।",
             12.5f, false, Ui.TXT2))
         root.addView(rc)
+
+        // ---- ছবি ও ভিডিও সার্চ ব্লক ----
+        val mOn = Prefs.media(c)
+        val mc = Ui.dcard(c)
+        mc.addView(Ui.dtext(c, "ছবি ও ভিডিও সার্চ ব্লক", 17f, true))
+        mc.addView(Ui.toggleRow(c, "🖼️", "ছবি ও ভিডিও সার্চ বন্ধ", "ব্রাউজারে ছবি/ভিডিও সার্চ করলে পেছনে যাবে", mOn) {
+            toggleMedia(mOn)
+        })
+        if (mOn && !a11y) mc.addView(Ui.dtext(c, "এটা কাজ করতে ওপরের \"গার্ড\" চালু থাকতে হবে।", 12.5f, false, Ui.AMBER))
+        mc.addView(Ui.dtext(c,
+            if (mOn) "চালু করা সুইচ বন্ধ করতে অ্যাডমিনের অনুমতি লাগবে." else "চালু করলে Chrome, Firefox ইত্যাদি ব্রাউজারে Google/Bing/DuckDuckGo এর Images ও Videos সার্চ খুলবে না।",
+            12.5f, false, Ui.TXT2))
+        root.addView(mc)
+
+        // ---- সবসময় চালু রাখার সেটিং ----
+        val kc = Ui.dcard(c)
+        kc.addView(Ui.dtext(c, "সবসময় চালু রাখুন", 17f, true))
+        kc.addView(Ui.dtext(c,
+            "ফোন ব্যাকগ্রাউন্ডে অ্যাপ বন্ধ করে দিলে সুরক্ষা থেমে যায়। নিচের সেটিংগুলো একবার করে দিন।",
+            12.5f, false, Ui.TXT2))
+        kc.addView(Ui.dlink(c, "১. অটো-স্টার্ট / ব্যাকগ্রাউন্ড অনুমতি দিন") { openAutoStart() })
+        kc.addView(Ui.dlink(c, "২. সবসময় চালু VPN (সেইফ সার্চ থামবে না)") {
+            openExternal(Intent(Settings.ACTION_VPN_SETTINGS))
+            toast("NafsGuard-এর পাশে ⚙️ চেপে \"Always-on VPN\" চালু করুন")
+        })
+        kc.addView(Ui.dtext(c,
+            "৩. Recent apps এ NafsGuard এর কার্ড চেপে ধরে \"Lock\" বা পিন করুন, যাতে \"সব বন্ধ করুন\" চাপলে অ্যাপ বন্ধ না হয়।",
+            12.5f, false, Ui.TXT2))
+        root.addView(kc)
 
         // ---- পরীক্ষার স্ট্যাটাস (লেখা পাহারা কাজ না করলে কারণ বোঝার জন্য) ----
         val dc = Ui.dcard(c)
@@ -349,7 +424,8 @@ class MainActivity : Activity() {
         Thread {
             val r = Api.login(Prefs.phone(c), Prefs.pass(c))
             runOnUiThread {
-                if (r.ok) Prefs.setReelAccess(c, r.fbAccess, r.igAccess)
+                if (r.off) { Access.disableAll(c); toast("অ্যাডমিন অ্যাক্সেস বন্ধ করেছেন"); goLogin(); return@runOnUiThread }
+                if (r.ok) Prefs.applyServer(c, r)
                 val allowed = r.ok && (if (fb) r.fbAccess else r.igAccess)
                 if (allowed) {
                     if (fb) Prefs.setFbReel(c, false) else Prefs.setIgReel(c, false)
@@ -362,22 +438,26 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun toggleImageVideo(currentlyOn: Boolean) {
+    // ছবি-ভিডিও সার্চ সুইচ: চালু করা সবসময় যাবে; বন্ধ করতে শিটে "Image and Video Access" ON লাগবে
+    private fun toggleMedia(currentlyOn: Boolean) {
+        val c = this
         if (!currentlyOn) {
-            Prefs.setImageVideo(this, true)
-            toast("Image and Video Access নিয়ন্ত্রণ চালু হয়েছে। সমর্থিত ব্রাউজার/সার্চে কার্যকারিতা যাচাই করতে হবে।")
+            Prefs.setMedia(c, true)
+            toast("ছবি ও ভিডিও সার্চ ব্লক চালু হয়েছে" + if (!a11yOn()) "। গার্ড চালু না থাকলে কাজ করবে না" else "")
             build(); return
         }
         toast("যাচাই হচ্ছে...")
-        val c = this
         Thread {
             val r = Api.login(Prefs.phone(c), Prefs.pass(c))
             runOnUiThread {
-                if (r.ok) Prefs.setImageVideoAccess(c, r.imageVideoAccess)
-                if (r.ok && r.imageVideoAccess) {
-                    Prefs.setImageVideo(c, false)
-                    toast("Image and Video Access বন্ধ হয়েছে")
-                } else toast(if (r.net) r.msg else "অ্যাডমিন এখনো Image and Video Access বন্ধের অনুমতি দেননি")
+                if (r.off) { Access.disableAll(c); toast("অ্যাডমিন অ্যাক্সেস বন্ধ করেছেন"); goLogin(); return@runOnUiThread }
+                if (r.ok) Prefs.applyServer(c, r)
+                if (r.ok && r.mediaAccess) {
+                    Prefs.setMedia(c, false)
+                    toast("ছবি ও ভিডিও সার্চ ব্লক বন্ধ হয়েছে")
+                } else {
+                    toast(if (r.net) r.msg else "অ্যাডমিন এখনো অনুমতি দেননি")
+                }
                 if (!isFinishing && Session.unlocked) build()
             }
         }.start()
