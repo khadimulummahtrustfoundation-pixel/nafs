@@ -52,23 +52,27 @@ object Prefs {
     fun igReel(c: Context) = sp(c).getBoolean("igReel", false)
     fun setIgReel(c: Context, v: Boolean) = sp(c).edit().putBoolean("igReel", v).apply()
 
-    // Browser image/video search restriction preference (server permission required to turn OFF)
-    fun imageVideo(c: Context) = sp(c).getBoolean("imageVideo", false)
-    fun setImageVideo(c: Context, v: Boolean) = sp(c).edit().putBoolean("imageVideo", v).apply()
-
     // ---- Reels অনুমতি: অ্যাডমিন Google Sheet-এ ON করলে ইউজার ব্লক বন্ধ করতে পারবে ----
     fun fbAccess(c: Context) = sp(c).getBoolean("fbAccess", false)
     fun igAccess(c: Context) = sp(c).getBoolean("igAccess", false)
-    fun imageVideoAccess(c: Context) = sp(c).getBoolean("imageVideoAccess", false)
-    fun setImageVideoAccess(c: Context, v: Boolean) = sp(c).edit().putBoolean("imageVideoAccess", v).apply()
     fun setReelAccess(c: Context, fb: Boolean, ig: Boolean) =
         sp(c).edit().putBoolean("fbAccess", fb).putBoolean("igAccess", ig).apply()
 
-    fun disableAllProtection(c: Context) {
-        sp(c).edit().putBoolean("safe", false).putBoolean("fbReel", false)
-            .putBoolean("igReel", false).putBoolean("imageVideo", false)
-            .putBoolean("unlock", false).putBoolean("fbAccess", false)
-            .putBoolean("igAccess", false).putBoolean("imageVideoAccess", false)
-            .putLong("lock", 0L).apply()
+    // ---- ছবি ও ভিডিও সার্চ ব্লক (ব্রাউজারে) ----
+    fun media(c: Context) = sp(c).getBoolean("media", false)
+    fun setMedia(c: Context, v: Boolean) = sp(c).edit().putBoolean("media", v).apply()
+    // অ্যাডমিন Google Sheet-এ "Image and Video Access" ON করলে ইউজার এই ব্লক বন্ধ করতে পারবে
+    fun mediaAccess(c: Context) = sp(c).getBoolean("mediaAccess", false)
+    fun setMediaAccess(c: Context, v: Boolean) = sp(c).edit().putBoolean("mediaAccess", v).apply()
+
+    // সার্ভার থেকে পাওয়া সর্বশেষ অনুমতিগুলো একসাথে সেভ
+    fun applyServer(c: Context, r: Api.Res) {
+        setUnlock(c, r.unlock)
+        setReelAccess(c, r.fbAccess, r.igAccess)
+        setMediaAccess(c, r.mediaAccess)
     }
+
+    // ব্যাটারি অনুমতি চাওয়ার সর্বশেষ সময় (বারবার বিরক্ত না করতে)
+    fun battAskedAt(c: Context) = sp(c).getLong("battAsk", 0L)
+    fun setBattAskedAt(c: Context, t: Long) = sp(c).edit().putLong("battAsk", t).apply()
 }
