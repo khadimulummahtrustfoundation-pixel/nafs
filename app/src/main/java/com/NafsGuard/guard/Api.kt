@@ -15,7 +15,8 @@ object Api {
         val net: Boolean = false, val approved: Boolean = false,
         val unlock: Boolean = false,
         val fbAccess: Boolean = false, val igAccess: Boolean = false,
-        val imageVideoAccess: Boolean = false
+        val mediaAccess: Boolean = false,
+        val off: Boolean = false          // Google Sheet-এ LoginAccess OFF করা হয়েছে
     )
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
@@ -36,7 +37,7 @@ object Api {
             Res(j.optBoolean("ok"), j.optString("msg"), j.optString("name"),
                 j.optInt("daysLeft"), approved = j.optBoolean("approved"), unlock = j.optBoolean("unlock"),
                 fbAccess = j.optBoolean("fbReel"), igAccess = j.optBoolean("igReel"),
-                imageVideoAccess = j.optBoolean("imageVideoAccess", j.optBoolean("imageVideo")))
+                mediaAccess = j.optBoolean("media"), off = j.optBoolean("off"))
         } catch (e: Exception) {
             Res(false, "সার্ভার সঠিক উত্তর দেয়নি। Apps Script নতুন কোড দিয়ে Deploy (Anyone) করা হয়েছে কিনা দেখুন।", net = true)
         }
