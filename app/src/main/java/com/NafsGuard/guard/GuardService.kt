@@ -648,8 +648,12 @@ class GuardService : AccessibilityService() {
         if (pkg !in fbPkgs) return false
         val storyIds = listOf("story_viewer", "stories_viewer", "story_tray", "viewer_progress", "story_reaction", "stories_pager")
         val inboxIdsFb = listOf("inbox", "thread", "messenger", "message_list", "chat")
+        
+        // ১. আপডেটকৃত words তালিকা
         val words = listOf("your story", "create story", "add to story", "pause story", "send message",
-            "chats", "messages", "type a message", "active now", "আপনার স্টোরি", "মেসেজ", "চ্যাট")
+            "chats", "messages", "type a message", "active now", "your note", "share a note", "reacted",
+            "আপনার স্টোরি", "মেসেজ", "চ্যাট")
+
         val cnt = intArrayOf(0)
         var hit = false
         fun walk(n: AccessibilityNodeInfo?, d: Int) {
@@ -874,7 +878,18 @@ class GuardService : AccessibilityService() {
             ((numRightCount >= 2) || upNext || (addComment && numRightCount >= 1) || (follow && numRightCount >= 1))
         Diag.liteOcr = (if (viewer) "[VIEWER] " else "") + (if (topLines.isEmpty()) "-" else topLines.joinToString("|"))
         Diag.liteOcrAt = now
-        if (now < liteGraceUntil || awaiting(now)) { liteSeen = 0; viewerSeen = 0; return }
+        
+        // ২. আপডেটকৃত liteEvaluate শর্ত
+        var safeScreen = false
+        for (b in t.textBlocks) for (ln in b.lines) {
+            val box = ln.boundingBox ?: continue
+            val txt = ln.text.trim().lowercase()
+            if (box.top < h * 22 / 100 && (txt == "messages" || txt.startsWith("messages"))) safeScreen = true
+            if (txt.startsWith("your note") || txt.startsWith("share a note") || txt.startsWith("reacted")) safeScreen = true
+            if (txt.startsWith("send message") && box.top > h * 70 / 100) safeScreen = true
+        }
+        if (safeScreen || now < liteGraceUntil || awaiting(now)) { liteSeen = 0; viewerSeen = 0; return }
+
         if (viewer) {
             viewerSeen++
             if (viewerSeen >= 2) {
