@@ -43,6 +43,19 @@ object Api {
         }
     }
 
+    // Google Sheet-এর "Rules" ট্যাবের নিয়ম (JSON লেখা) নামানো; না পেলে null
+    fun rules(): String? {
+        return try {
+            val cn = URL("$ENDPOINT?action=rules").openConnection() as HttpURLConnection
+            cn.connectTimeout = 20000
+            cn.readTimeout = 20000
+            cn.instanceFollowRedirects = true
+            val body = cn.inputStream.bufferedReader().use { it.readText() }
+            val j = JSONObject(body)
+            if (j.optBoolean("ok")) j.optJSONObject("rules")?.toString() else null
+        } catch (e: Exception) { null }
+    }
+
     fun login(phone: String, pass: String) =
         call("action=login&phone=${enc(phone)}&password=${enc(pass)}")
 
