@@ -158,14 +158,21 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
+    private var lastBrowserPkg = ""
     private fun blockMedia(now: Long) {
         if (now - lastMediaBlock < 1500) return
-        if (now - lastMediaBlock > 10000) mediaStreak = 0
         lastMediaBlock = now
-        mediaStreak++
         Diag.lastBlock = "media-search"; Diag.lastBlockAt = now
-        if (mediaStreak >= 3) { mediaStreak = 0; performGlobalAction(GLOBAL_ACTION_HOME) }
-        else performGlobalAction(GLOBAL_ACTION_BACK)
+        // অ্যাপ থেকে বের না করে ব্রাউজারের হোম পেইজে নিয়ে যায়
+        var ok = false
+        if (lastBrowserPkg.isNotEmpty()) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/"))
+                    .setPackage(lastBrowserPkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ok = true
+            } catch (e: Exception) {}
+        }
+        if (!ok) performGlobalAction(GLOBAL_ACTION_BACK)
         toast("🚫 NafsGuard: ছবি ও ভিডিও সার্চ বন্ধ আছে")
     }
     private fun checkMedia(root: AccessibilityNodeInfo, pkg: String): Boolean {
@@ -259,14 +266,66 @@ class GuardService : AccessibilityService() {
     private var lastBlkToast = 0L
     private fun isBlacklisted(pkg: String): Boolean =
         pkg != packageName && Prefs.loggedIn(this) && Prefs.blacklist(this).contains(pkg)
-    private fun blockBlacklisted() {
+    private var blkOverlay: View? = null
+    private fun removeBlkOverlay() {
+        val v = blkOverlay ?: return
+        blkOverlay = null
+        try { (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v) } catch (e: Exception) {}
+    }
+    private fun blockBlacklisted(pkg: String) {
+        if (blkOverlay != null) return
         val now = System.currentTimeMillis()
         if (now - lastBlkAt < 700) return
         lastBlkAt = now
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        if (now - lastBlkToast > 2500) {
-            lastBlkToast = now
-            toast("🚫 NafsGuard: এই অ্যাপ ব্ল্যাকলিস্টে আছে, খোলা যাবে না")
+        val c: Context = this
+        val label = try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) { pkg }
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val p = Ui.dp(c, 24); setPadding(p, p, p, p)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE); cornerRadius = Ui.dp(c, 20).toFloat()
+            }
+        }
+        card.addView(ImageView(c).apply {
+            setImageResource(android.R.drawable.ic_lock_lock)
+            setColorFilter(Color.parseColor("#C62828"))
+            layoutParams = LinearLayout.LayoutParams(Ui.dp(c, 64), Ui.dp(c, 64))
+        })
+        card.addView(Ui.text(c, "অ্যাপটি ব্লক করা আছে", 22f, true, Color.parseColor("#C62828"))
+            .apply { gravity = Gravity.CENTER })
+        card.addView(Ui.text(c, "\"$label\" NafsGuard-এর ব্ল্যাকলিস্টে আছে, তাই এটি খোলা যাবে না।", 16f)
+            .apply { gravity = Gravity.CENTER })
+        card.addView(Ui.button(c, "ঠিক আছে") {
+            removeBlkOverlay(); performGlobalAction(GLOBAL_ACTION_HOME)
+        })
+        val m = Ui.dp(c, 28)
+        val root = FrameLayout(c).apply {
+            isClickable = true
+            setBackgroundColor(Color.parseColor("#E6101010"))
+            addView(card, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER
+            ).apply { setMargins(m, 0, m, 0) })
+        }
+        val lp = WindowManager.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        try {
+            (getSystemService(Context.WINDOW_SERVICE) as WindowManager).addView(root, lp)
+            blkOverlay = root
+            // কিছু না চাপলেও ৩ সেকেন্ড পর নিজে থেকে হোমে পাঠাবে
+            handler.postDelayed({
+                if (blkOverlay === root) { removeBlkOverlay(); performGlobalAction(GLOBAL_ACTION_HOME) }
+            }, 3000)
+        } catch (e: Exception) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            toast("🚫 NafsGuard: এই অ্যাপটি ব্লক করা আছে")
         }
     }
     private val blkLoop = object : Runnable {
@@ -274,7 +333,8 @@ class GuardService : AccessibilityService() {
             try {
                 if (Prefs.loggedIn(this@GuardService) && Prefs.blacklist(this@GuardService).isNotEmpty()) {
                     val p = rootInActiveWindow?.packageName?.toString()
-                    if (p != null && isBlacklisted(p)) blockBlacklisted()
+                    if (p != null && isBlacklisted(p)) blockBlacklisted(p)
+                    else if (p != null && blkOverlay != null) removeBlkOverlay()
                 }
             } catch (e: Throwable) {}
             handler.postDelayed(this, 700)
@@ -299,6 +359,7 @@ class GuardService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         handler.removeCallbacksAndMessages(null)
         removeOverlay()
+        removeBlkOverlay()
         return super.onUnbind(intent)
     }
     private fun adminActive(): Boolean {
@@ -404,7 +465,12 @@ class GuardService : AccessibilityService() {
             }
         }
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && isBlacklisted(pkg)) {
-            blockBlacklisted(); return
+            blockBlacklisted(pkg); return
+        }
+        if (isBrowser(pkg) && pkg != packageName) {
+            lastBrowserPkg = pkg
+            // ব্রাউজার খোলা বা পেজ বদলালেই সঙ্গে সঙ্গে ছবি/ভিডিও ট্যাব চেক হবে
+            if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) lastMediaScan = 0L
         }
         if (pkg == packageName) return
         when (e.eventType) {
