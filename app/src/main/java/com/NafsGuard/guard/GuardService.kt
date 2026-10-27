@@ -254,6 +254,32 @@ class GuardService : AccessibilityService() {
         "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
+    // ---- ব্ল্যাকলিস্ট: তালিকার অ্যাপ খুললেই হোম স্ক্রিনে পাঠায় ----
+    private var lastBlkAt = 0L
+    private var lastBlkToast = 0L
+    private fun isBlacklisted(pkg: String): Boolean =
+        pkg != packageName && Prefs.loggedIn(this) && Prefs.blacklist(this).contains(pkg)
+    private fun blockBlacklisted() {
+        val now = System.currentTimeMillis()
+        if (now - lastBlkAt < 700) return
+        lastBlkAt = now
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        if (now - lastBlkToast > 2500) {
+            lastBlkToast = now
+            toast("🚫 NafsGuard: এই অ্যাপ ব্ল্যাকলিস্টে আছে, খোলা যাবে না")
+        }
+    }
+    private val blkLoop = object : Runnable {
+        override fun run() {
+            try {
+                if (Prefs.loggedIn(this@GuardService) && Prefs.blacklist(this@GuardService).isNotEmpty()) {
+                    val p = rootInActiveWindow?.packageName?.toString()
+                    if (p != null && isBlacklisted(p)) blockBlacklisted()
+                }
+            } catch (e: Throwable) {}
+            handler.postDelayed(this, 700)
+        }
+    }
     override fun onServiceConnected() {
         super.onServiceConnected()
         if (Prefs.loggedIn(this) && Prefs.safe(this) && !DnsVpnService.active &&
@@ -266,6 +292,8 @@ class GuardService : AccessibilityService() {
         handler.postDelayed(scanLoop, 3000)
         handler.removeCallbacks(liteLoop)
         handler.postDelayed(liteLoop, 4000)
+        handler.removeCallbacks(blkLoop)
+        handler.postDelayed(blkLoop, 2000)
         try { keepAliveTick() } catch (e: Throwable) {}
     }
     override fun onUnbind(intent: Intent?): Boolean {
@@ -374,6 +402,9 @@ class GuardService : AccessibilityService() {
                     }
                 }
             }
+        }
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && isBlacklisted(pkg)) {
+            blockBlacklisted(); return
         }
         if (pkg == packageName) return
         when (e.eventType) {
