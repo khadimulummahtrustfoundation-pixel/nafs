@@ -85,4 +85,18 @@ object Prefs {
     fun setRulesJson(c: Context, v: String) = sp(c).edit().putString("rules", v).apply()
     fun rulesAt(c: Context) = sp(c).getLong("rulesAt", 0L)
     fun setRulesAt(c: Context, t: Long) = sp(c).edit().putLong("rulesAt", t).apply()
+
+    // ---- ব্ল্যাকলিস্ট: যে অ্যাপগুলোতে ঢোকা যাবে না (প্যাকেজ নামের তালিকা) ----
+    fun blacklist(c: Context): Set<String> =
+        sp(c).getStringSet("blacklist", emptySet())!!.toSet()
+
+    fun addBlacklist(c: Context, pkgs: Collection<String>) {
+        val s = blacklist(c).toMutableSet(); s.addAll(pkgs)
+        sp(c).edit().putStringSet("blacklist", s).apply()
+    }
+
+    fun removeBlacklist(c: Context, pkg: String) {
+        val s = blacklist(c).toMutableSet(); s.remove(pkg)
+        sp(c).edit().putStringSet("blacklist", s).apply()
+    }
 }
