@@ -398,6 +398,8 @@ class MainActivity : Activity() {
         if (locked) wc.addView(Ui.dtext(c, "লক চালু থাকায় শব্দ মুছা যাবে না (যোগ করা যাবে)।", 12.5f, false, Ui.TXT2))
         root.addView(wc)
 
+        root.addView(Blacklist.card(this, locked) { build() })
+
         val lc = Ui.dcard(c)
         lc.addView(Ui.dtext(c, "১ মাসের লক", 17f, true))
         val isOwner = Owner.isOwner(c)
