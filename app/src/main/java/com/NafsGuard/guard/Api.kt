@@ -56,6 +56,20 @@ object Api {
         } catch (e: Exception) { null }
     }
 
+    // Google Sheet-এর "Version" ট্যাবের A1 ঘরের ভার্সন; না পেলে (নেট নেই/স্ক্রিপ্টে নেই) null
+    fun version(): String? {
+        return try {
+            val cn = URL("$ENDPOINT?action=version").openConnection() as HttpURLConnection
+            cn.connectTimeout = 15000
+            cn.readTimeout = 15000
+            cn.instanceFollowRedirects = true
+            val body = cn.inputStream.bufferedReader().use { it.readText() }
+            val j = JSONObject(body)
+            val v = j.optString("version").trim()
+            if (j.optBoolean("ok") && v.isNotEmpty()) v else null
+        } catch (e: Exception) { null }
+    }
+
     fun login(phone: String, pass: String) =
         call("action=login&phone=${enc(phone)}&password=${enc(pass)}")
 
