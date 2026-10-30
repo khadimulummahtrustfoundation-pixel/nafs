@@ -53,6 +53,15 @@ class LoginActivity : Activity() {
             btn.isEnabled = false
             status.setTextColor(Ui.NEON); status.text = "যাচাই হচ্ছে..."
             Thread {
+                // শীটের ভার্সনের সাথে অ্যাপের ভার্সন না মিললে লগইন নয়, আপডেট পপ-আপ
+                val sv = Api.version()
+                if (sv != null && sv != Update.current(c)) {
+                    runOnUiThread {
+                        status.text = ""; btn.isEnabled = true
+                        Update.show(this@LoginActivity)
+                    }
+                    return@Thread
+                }
                 val r = Api.login(p, w)
                 // ইন্টারনেট না থাকলে আগের সেভ করা তথ্যের সাথে মিলিয়ে ঢুকতে দেওয়া
                 val offlineOk = r.net && returning &&
