@@ -110,9 +110,17 @@ class LoginActivity : Activity() {
         }
         tg.addView(ImageView(c).apply { setImageResource(R.drawable.ic_telegram) },
             LinearLayout.LayoutParams(Ui.dp(c, 20), Ui.dp(c, 20)))
-        tg.addView(Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ", 15f, true, Ui.NEON).apply {
+        val tgText = Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ", 15f, true, Ui.NEON).apply {
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(Ui.dp(c, 10), 0, 0, 0)
-        })
+        }
+        // বাংলা ফন্টের লেখা নিচে নেমে থাকে, তাই লেখার আসল মাঝখান আইকনের মাঝখানে মেলানো হয়
+        val tb = android.graphics.Rect()
+        val tm = tgText.paint.fontMetrics
+        tgText.paint.getTextBounds(tgText.text.toString(), 0, tgText.text.length, tb)
+        tgText.translationY = -((tb.top + tb.bottom) / 2f - (tm.ascent + tm.descent) / 2f)
+        tg.addView(tgText)
         root.addView(tg, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(c, 18) })
