@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.net.Uri
+import android.view.ViewGroup
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -89,11 +91,17 @@ class LoginActivity : Activity() {
                 startActivity(Intent(c, RegisterActivity::class.java))
             })
         }
-        // টেলিগ্রামে যোগাযোগ
+        // অ্যাডমিনের সাথে যোগাযোগ (টেলিগ্রাম)
         val tg = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, Ui.dp(c, 16), 0, Ui.dp(c, 6))
+            setPadding(Ui.dp(c, 22), Ui.dp(c, 11), Ui.dp(c, 22), Ui.dp(c, 11))
+            background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke(Ui.dp(c, 1.5f), Ui.NEON)
+                cornerRadius = Ui.dp(c, 50).toFloat()
+            }
+            isClickable = true
             setOnClickListener {
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/rishadhossainmahib")))
@@ -101,11 +109,13 @@ class LoginActivity : Activity() {
             }
         }
         tg.addView(ImageView(c).apply { setImageResource(R.drawable.ic_telegram) },
-            LinearLayout.LayoutParams(Ui.dp(c, 30), Ui.dp(c, 30)))
-        tg.addView(Ui.dtext(c, "টেলিগ্রামে যোগাযোগ করুন", 15f, true, Ui.NEON).apply {
+            LinearLayout.LayoutParams(Ui.dp(c, 20), Ui.dp(c, 20)))
+        tg.addView(Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ", 15f, true, Ui.NEON).apply {
             setPadding(Ui.dp(c, 10), 0, 0, 0)
         })
-        root.addView(tg)
+        root.addView(tg, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(c, 18) })
 
         setContentView(ScrollView(c).apply {
             background = Ui.bg(); isFillViewport = true; addView(root)
