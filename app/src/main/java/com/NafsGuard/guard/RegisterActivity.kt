@@ -10,7 +10,11 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Toast
+import android.app.Dialog
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.view.ViewGroup
+import android.view.Window
 
 class RegisterActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,7 +64,7 @@ class RegisterActivity : Activity() {
                         startActivity(Intent(c, MainActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
                     } else if (r.ok) {
-                        Toast.makeText(c, r.msg, Toast.LENGTH_LONG).show(); finish()
+                        showDone()
                     } else {
                         status.setTextColor(Ui.RED)
                         status.text = r.msg; btn.isEnabled = true
@@ -73,5 +77,33 @@ class RegisterActivity : Activity() {
         setContentView(ScrollView(c).apply {
             background = Ui.bg(); isFillViewport = true; addView(root)
         })
+    }
+
+    // রেজিস্ট্রেশন সফল হলে পপ-আপ; "ঠিক আছে" চাপলে লগইন পেইজে ফিরে যায়
+    private fun showDone() {
+        val c: Context = this
+        val box = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val pd = Ui.dp(c, 22); setPadding(pd, pd, pd, pd)
+            background = GradientDrawable().apply {
+                setColor(Ui.CARD); setStroke(Ui.dp(c, 1), Ui.CARD_STROKE)
+                cornerRadius = Ui.dp(c, 20).toFloat()
+            }
+        }
+        box.addView(Ui.dtext(c, "✅ রেজিস্ট্রেশন সম্পন্ন", 20f, true, Ui.NEON).apply { gravity = Gravity.CENTER })
+        box.addView(Ui.dtext(c, "আপনার অ্যাকাউন্ট তৈরি হয়েছে।", 15f).apply { gravity = Gravity.CENTER })
+        box.addView(Ui.dtext(c, "অ্যাডমিন অনুমোদন করলে তবেই আপনি লগইন করতে পারবেন।", 15f)
+            .apply { gravity = Gravity.CENTER })
+        box.addView(Ui.dtext(c, "অনুমোদনের জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।", 14f, false, Ui.TXT2)
+            .apply { gravity = Gravity.CENTER })
+        val dlg = Dialog(c)
+        dlg.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dlg.setCancelable(false)
+        dlg.setContentView(box)
+        dlg.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dlg.window?.setLayout((c.resources.displayMetrics.widthPixels * 0.9).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        box.addView(Ui.dbutton(c, "ঠিক আছে") { dlg.dismiss(); finish() })
+        dlg.show()
     }
 }
