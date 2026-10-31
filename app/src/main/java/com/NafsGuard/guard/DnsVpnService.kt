@@ -12,9 +12,9 @@ import java.net.InetAddress
 import java.util.concurrent.Executors
 
 /**
- * সেইফ সার্চ + ফেসবুক ও ইনস্টাগ্রাম রিলস ব্লক: 
- * লোকাল VPN দিয়ে DNS রিকোয়েস্ট ধরে CleanBrowsing-এ পাঠানোর পাশাপাশি 
- * FB & Insta Reels ডোমেইনগুলো ফিল্টার করে ব্লক করে দেয়।
+ * সেইফ সার্চ: লোকাল VPN দিয়ে DNS রিকোয়েস্ট ধরে CleanBrowsing-এ পাঠায়।
+ * ছবি/ভিডিওর CDN ডোমেইন (fbcdn, scontent, video…) ইচ্ছা করেই ব্লক করা হয় না,
+ * কারণ DNS দিয়ে রিল আর সাধারণ ভিডিও আলাদা করা যায় না। রিল ব্লক করে GuardService।
  */
 class DnsVpnService : VpnService() {
 
@@ -24,14 +24,6 @@ class DnsVpnService : VpnService() {
         private val UPSTREAM = listOf(
             byteArrayOf(185.toByte(), 228.toByte(), 168.toByte(), 168.toByte()),
             byteArrayOf(185.toByte(), 228.toByte(), 169.toByte(), 168.toByte())
-        )
-
-        // রিলস এবং ভিডিও ডোমেইন ফিল্টার করার ব্লকলিস্ট কিওয়ার্ড
-        private val BLOCKED_DOMAINS = listOf(
-            "fbcdn.net",
-            "instagram.com",
-            "cdninstagram.com",
-            "fbsbx.com"
         )
 
         fun start(c: Context) {
@@ -59,7 +51,7 @@ class DnsVpnService : VpnService() {
         if (running) return
         try {
             val pfd = Builder()
-                .setSession("NafsGuard Safe Search & Reels Guard")
+                .setSession("NafsGuard Safe Search")
                 .addAddress("10.111.222.1", 32)
                 .addDnsServer("10.111.222.2")
                 .addRoute("10.111.222.2", 32)
@@ -111,14 +103,7 @@ class DnsVpnService : VpnService() {
                 if (end <= ihl + 8) continue
                 val query = buf.copyOfRange(ihl + 8, end)
                 val clientIp = buf.copyOfRange(12, 16)
-                
-                // ডোমেইন পার্স করে চেক করা রিলস বা ভিডিও কিনা
-                if (isDomainBlocked(query)) {
-                    // যদি ব্লকড লিস্টের ডোমেইন হয়, তবে ফেক ব্ল্যাকহোল রেসপন্স (0.0.0.0) পাঠিয়ে দেবো
-                    pool.execute { sendBlockedResponse(query, clientIp, srcPort, output) }
-                } else {
-                    pool.execute { resolve(query, clientIp, srcPort, output) }
-                }
+                pool.execute { resolve(query, clientIp, srcPort, output) }
             } catch (e: Exception) {
                 if (!running) break
                 errs++
@@ -127,56 +112,6 @@ class DnsVpnService : VpnService() {
             }
         }
         if (running) { shutdown(); try { stopSelf() } catch (e: Exception) {} }
-    }
-
-    // DNS রিকোয়েস্ট বাইট থেকে ডোমেইন নাম বের করে চেক করা
-    private fun isDomainBlocked(query: ByteArray): Boolean {
-        try {
-            var offset = 12 // DNS Header length
-            val sb = StringBuilder()
-            while (offset < query.size) {
-                val len = query[offset].toInt()
-                if (len == 0) break
-                if (offset + 1 + len > query.size) break
-                if (sb.isNotEmpty()) sb.append(".")
-                sb.append(String(query, offset + 1, len))
-                offset += 1 + len
-            }
-            val domain = sb.toString().lowercase()
-            for (blocked in BLOCKED_DOMAINS) {
-                if (domain.contains(blocked)) {
-                    // রিলস বা ভিডিও রিলেটেড সাবডোমেইন কিনা যাচাই (যেমন video, reels, scontent)
-                    if (domain.contains("video") || domain.contains("reel") || domain.contains("scontent") || domain.contains("media")) {
-                        return true
-                    }
-                }
-            }
-        } catch (e: Exception) {}
-        return false
-    }
-
-    // ব্লকড ডোমেইনের জন্য জিরো আইপি (0.0.0.0) রেসপন্স তৈরি করা
-    private fun sendBlockedResponse(query: ByteArray, clientIp: ByteArray, clientPort: Int, out: FileOutputStream) {
-        try {
-            val qLen = query.size
-            val resp = ByteArray(qLen + 16)
-            System.arraycopy(query, 0, resp, 0, qLen)
-            // DNS Response Flags (NoError, Answer section included)
-            resp[2] = 0x81.toByte()
-            resp[3] = 0x80.toByte()
-            resp[7] = 0x01.toByte() // ANCOUNT = 1
-            
-            // Answer record (Pointer to domain name, Type A, Class IN, TTL, RDLENGTH, IP 0.0.0.0)
-            var idx = qLen
-            resp[idx++] = 0xC0.toByte(); resp[idx++] = 0x0C.toByte()
-            resp[idx++] = 0x00; resp[idx++] = 0x01
-            resp[idx++] = 0x00; resp[idx++] = 0x01
-            resp[idx++] = 0x00; resp[idx++] = 0x00; resp[idx++] = 0x00; resp[idx++] = 0x3C
-            resp[idx++] = 0x00; resp[idx++] = 0x04
-            resp[idx++] = 0x00; resp[idx++] = 0x00; resp[idx++] = 0x00; resp[idx++] = 0x00 // IP: 0.0.0.0
-
-            writeResponse(resp, idx, clientIp, clientPort, out)
-        } catch (e: Exception) {}
     }
 
     private fun resolve(query: ByteArray, clientIp: ByteArray, clientPort: Int, out: FileOutputStream) {
