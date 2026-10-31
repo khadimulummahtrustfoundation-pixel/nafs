@@ -505,6 +505,7 @@ class GuardService : AccessibilityService() {
         if (deviceAdminGuard(root)) return
         if (protect(rootPkg, root)) return
         if (checkMedia(root, rootPkg)) return
+        if (checkShorts(root, rootPkg)) return
         if (checkReels(root, rootPkg)) return
         val now = System.currentTimeMillis()
         if (now - last < 300) return
@@ -798,6 +799,58 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
+    // ---- YouTube Shorts ব্লক: Shorts প্লেয়ার বা Shorts ট্যাব খুললেই পেছনে পাঠায় ----
+    private val ytPkg = "com.google.android.youtube"
+    private val ytShortsKeys = listOf("reel_player", "reel_recycler", "reel_watch", "shorts_player", "shorts_container", "shorts_pager")
+    private var lastYtScan = 0L
+    private var lastYtBlock = 0L
+    private var ytStreak = 0
+
+    private fun ytShortsHit(root: AccessibilityNodeInfo): String? {
+        var count = 0
+        var found: String? = null
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || found != null || count > 700 || depth > 28) return
+            count++
+            val id = n.viewIdResourceName
+            if (id != null && n.isVisibleToUser) {
+                val l = id.substringAfter(":id/")
+                if (ytShortsKeys.any { l.contains(it) }) { found = "id:$l"; return }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        if (found != null) return found
+        // নিচের মেনুতে "Shorts" ট্যাব সিলেক্ট করা থাকলে
+        try {
+            for (n in root.findAccessibilityNodeInfosByText("Shorts")) {
+                var x: AccessibilityNodeInfo? = n
+                var d = 0
+                while (x != null && d < 3) {
+                    if (x.isSelected && x.isVisibleToUser) return "tab:shorts"
+                    x = x.parent; d++
+                }
+            }
+        } catch (e: Exception) {}
+        return null
+    }
+
+    private fun checkShorts(root: AccessibilityNodeInfo, pkg: String): Boolean {
+        if (pkg != ytPkg || !Prefs.ytShorts(this)) return false
+        val now = System.currentTimeMillis()
+        if (now - lastYtScan < 300) return false
+        lastYtScan = now
+        val hit = ytShortsHit(root) ?: return false
+        if (now - lastYtBlock < 900) return true
+        ytStreak = if (now - lastYtBlock < 10000) ytStreak + 1 else 1
+        lastYtBlock = now
+        Diag.lastBlock = "youtube $hit"; Diag.lastBlockAt = now
+        if (ytStreak >= 3) { ytStreak = 0; performGlobalAction(GLOBAL_ACTION_HOME) }
+        else performGlobalAction(GLOBAL_ACTION_BACK)
+        toast("🚫 NafsGuard: YouTube Shorts ব্লক করা আছে")
+        return true
+    }
+
     private fun blockReels(now: Long) {
         if (now - lastReelBlock < 900) return
         lastReelBlock = now

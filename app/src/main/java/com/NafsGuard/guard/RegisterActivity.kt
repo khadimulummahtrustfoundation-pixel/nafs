@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import android.app.Dialog
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -30,16 +32,20 @@ class RegisterActivity : Activity() {
         root.addView(Ui.heroLogo(c, 96))
         root.addView(Ui.dtext(c, "NafsGuard", 30f, true, Ui.NEON).apply { gravity = Gravity.CENTER })
         root.addView(Ui.dtext(c, "নতুন অ্যাকাউন্ট খুলুন").apply { gravity = Gravity.CENTER })
-        val name = Ui.dedit(c, "আপনার নাম")
-        val phone = Ui.dedit(c, "ফোন নম্বর").apply { inputType = InputType.TYPE_CLASS_PHONE }
-        val pass = Ui.dedit(c, "পাসওয়ার্ড (কমপক্ষে ৪ অক্ষর)").apply {
+        val name = Ui.dedit(c, "ইংরেজিতে আপনার নাম")
+        val phone = Ui.dedit(c, "ইংরেজিতে ফোন নাম্বার").apply { inputType = InputType.TYPE_CLASS_PHONE }
+        val pass = Ui.dedit(c, "ইংরেজিতে পাসওয়ার্ড").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val pass2 = Ui.dedit(c, "পাসওয়ার্ড আবার লিখুন").apply {
+        val pass2 = Ui.dedit(c, "ইংরেজিতে পাসওয়ার্ড আবার লিখুন").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val status = Ui.dtext(c, "", 14f, false, Ui.RED)
         root.addView(name); root.addView(phone); root.addView(pass); root.addView(pass2); root.addView(status)
+        // বাংলা বা অন্য ভাষার অক্ষর লেখা (বা পেস্ট করা) আটকে দেয়, শুধু ইংরেজি অক্ষর/সংখ্যা/চিহ্ন চলবে
+        val en = englishOnly(status)
+        name.filters = arrayOf(en); phone.filters = arrayOf(en)
+        pass.filters = arrayOf(en); pass2.filters = arrayOf(en)
 
         lateinit var btn: Button
         btn = Ui.dbutton(c, "অ্যাকাউন্ট খুলুন") {
@@ -48,6 +54,8 @@ class RegisterActivity : Activity() {
             val w = pass.text.toString()
             status.setTextColor(Ui.RED)
             when {
+                listOf(n, p, w, pass2.text.toString()).any { t -> t.any { ch -> ch.code > 126 } } ->
+                    { status.text = "শুধু ইংরেজিতে লিখুন"; return@dbutton }
                 n.isEmpty() -> { status.text = "নাম লিখুন"; return@dbutton }
                 p.filter { it.isDigit() }.length < 10 -> { status.text = "সঠিক ফোন নম্বর দিন"; return@dbutton }
                 w.length < 4 -> { status.text = "পাসওয়ার্ড কমপক্ষে ৪ অক্ষর হতে হবে"; return@dbutton }
@@ -77,6 +85,19 @@ class RegisterActivity : Activity() {
         setContentView(ScrollView(c).apply {
             background = Ui.bg(); isFillViewport = true; addView(root)
         })
+    }
+
+    private fun englishOnly(status: TextView) = InputFilter { src, start, end, _, _, _ ->
+        var bad = false
+        val sb = StringBuilder()
+        for (i in start until end) {
+            val ch = src[i]
+            if (ch.code in 32..126) sb.append(ch) else bad = true
+        }
+        if (bad) {
+            status.setTextColor(Ui.RED); status.text = "শুধু ইংরেজিতে লিখুন"
+            sb
+        } else null
     }
 
     // রেজিস্ট্রেশন সফল হলে পপ-আপ; "ঠিক আছে" চাপলে লগইন পেইজে ফিরে যায়

@@ -14,6 +14,7 @@ object Access {
         Prefs.setSafe(c, false)
         Prefs.setFbReel(c, false)
         Prefs.setIgReel(c, false)
+        Prefs.setYtShorts(c, false)
         Prefs.setMedia(c, false)
         Prefs.setVpnAlways(c, false)
         Prefs.clearLock(c)

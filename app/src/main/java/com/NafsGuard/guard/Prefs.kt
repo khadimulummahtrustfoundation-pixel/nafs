@@ -56,6 +56,13 @@ object Prefs {
     fun igReel(c: Context) = sp(c).getBoolean("igReel", false)
     fun setIgReel(c: Context, v: Boolean) = sp(c).edit().putBoolean("igReel", v).apply()
 
+    // ---- YouTube Shorts ব্লক: ইউজারের নিজের সুইচ (বন্ধ করার অনুমতি = শীটের YT Shorts Access) ----
+    fun ytShorts(c: Context) = sp(c).getBoolean("ytShorts", false)
+    fun setYtShorts(c: Context, v: Boolean) = sp(c).edit().putBoolean("ytShorts", v).apply()
+    // অ্যাডমিন শীটে "YT Shorts Access" ON করলে ইউজার এই ব্লক বন্ধ করতে পারবে
+    fun ytAccess(c: Context) = sp(c).getBoolean("ytAccess", false)
+    fun setYtAccess(c: Context, v: Boolean) = sp(c).edit().putBoolean("ytAccess", v).apply()
+
     // ---- Reels অনুমতি: অ্যাডমিন Google Sheet-এ ON করলে ইউজার ব্লক বন্ধ করতে পারবে ----
     fun fbAccess(c: Context) = sp(c).getBoolean("fbAccess", false)
     fun igAccess(c: Context) = sp(c).getBoolean("igAccess", false)
@@ -74,6 +81,7 @@ object Prefs {
         setUnlock(c, r.unlock)
         setReelAccess(c, r.fbAccess, r.igAccess)
         setMediaAccess(c, r.mediaAccess)
+        setYtAccess(c, r.ytAccess)
     }
 
     // ব্যাটারি অনুমতি চাওয়ার সর্বশেষ সময় (বারবার বিরক্ত না করতে)

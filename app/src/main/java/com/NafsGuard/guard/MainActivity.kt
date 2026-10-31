@@ -304,6 +304,7 @@ class MainActivity : Activity() {
 
         val fbOn = Prefs.fbReel(c)
         val igOn = Prefs.igReel(c)
+        val ytOn = Prefs.ytShorts(c)
         val rc = Ui.dcard(c)
         rc.addView(Ui.dtext(c, "Reels ব্লক", 17f, true))
         rc.addView(Ui.toggleRow(c, "📘", "Facebook Reels ব্লক", "Reels খুললেই নিজে থেকে পেছনে যাবে", fbOn) {
@@ -313,9 +314,13 @@ class MainActivity : Activity() {
         rc.addView(Ui.toggleRow(c, "📸", "Instagram Reels ব্লক", "Reels খুললেই নিজে থেকে পেছনে যাবে", igOn) {
             toggleReel(false, igOn)
         })
-        if ((fbOn || igOn) && !a11y) rc.addView(Ui.dtext(c, "Reels ব্লক কাজ করতে ওপরের \"গার্ড\" চালু থাকতে হবে।", 12.5f, false, Ui.AMBER))
+        rc.addView(Ui.divider(c))
+        rc.addView(Ui.toggleRow(c, "▶️", "YouTube Shorts ব্লক", "Shorts খুললেই নিজে থেকে পেছনে যাবে", ytOn) {
+            toggleYt(ytOn)
+        })
+        if ((fbOn || igOn || ytOn) && !a11y) rc.addView(Ui.dtext(c, "Reels ব্লক কাজ করতে ওপরের \"গার্ড\" চালু থাকতে হবে।", 12.5f, false, Ui.AMBER))
         rc.addView(Ui.dtext(c,
-            if (fbOn || igOn) "চালু করা সুইচ বন্ধ করতে অ্যাডমিনের অনুমতি লাগবে।" else "সুইচ চালু করলে Facebook/Instagram-এ Reels খুললেই NafsGuard পেছনে পাঠিয়ে দেবে।",
+            if (fbOn || igOn || ytOn) "চালু করা সুইচ বন্ধ করতে অ্যাডমিনের অনুমতি লাগবে।" else "সুইচ চালু করলে Facebook/Instagram-এ Reels আর YouTube-এ Shorts খুললেই NafsGuard পেছনে পাঠিয়ে দেবে।",
             12.5f, false, Ui.TXT2))
         root.addView(rc)
 
@@ -452,6 +457,30 @@ class MainActivity : Activity() {
                 if (allowed) {
                     if (fb) Prefs.setFbReel(c, false) else Prefs.setIgReel(c, false)
                     toast("$name ব্লক বন্ধ হয়েছে")
+                } else {
+                    toast(if (r.net) r.msg else "অ্যাডমিন এখনো অনুমতি দেননি")
+                }
+                if (!isFinishing && Session.unlocked) build()
+            }
+        }.start()
+    }
+
+    private fun toggleYt(currentlyOn: Boolean) {
+        val c = this
+        if (!currentlyOn) {
+            Prefs.setYtShorts(c, true)
+            toast("YouTube Shorts ব্লক চালু হয়েছে" + if (!a11yOn()) "। গার্ড চালু না থাকলে কাজ করবে না" else "")
+            build(); return
+        }
+        toast("যাচাই হচ্ছে...")
+        Thread {
+            val r = Api.login(Prefs.phone(c), Prefs.pass(c))
+            runOnUiThread {
+                if (r.off) { Access.disableAll(c); toast("অ্যাডমিন অ্যাক্সেস বন্ধ করেছেন"); goLogin(); return@runOnUiThread }
+                if (r.ok) Prefs.applyServer(c, r)
+                if (r.ok && r.ytAccess) {
+                    Prefs.setYtShorts(c, false)
+                    toast("YouTube Shorts ব্লক বন্ধ হয়েছে")
                 } else {
                     toast(if (r.net) r.msg else "অ্যাডমিন এখনো অনুমতি দেননি")
                 }
