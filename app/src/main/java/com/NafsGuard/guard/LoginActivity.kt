@@ -11,7 +11,6 @@ import android.net.Uri
 import android.view.ViewGroup
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 
@@ -108,14 +107,12 @@ class LoginActivity : Activity() {
                 } catch (e: Exception) {}
             }
         }
-        tg.addView(ImageView(c).apply { setImageResource(R.drawable.ic_telegram) },
-            LinearLayout.LayoutParams(Ui.dp(c, 20), Ui.dp(c, 20)))
-        val tgText = Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ", 15f, true, Ui.NEON).apply {
+        val tgText = Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ →", 15f, true, Ui.NEON).apply {
             includeFontPadding = false
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(Ui.dp(c, 10), 0, 0, 0)
+            setPadding(0, 0, 0, 0)
         }
-        // বাংলা ফন্টের লেখা নিচে নেমে থাকে, তাই লেখার আসল মাঝখান আইকনের মাঝখানে মেলানো হয়
+        // বাংলা ফন্টের লেখা নিচে নেমে থাকে, তাই লেখার আসল মাঝখান বর্ডারের মাঝখানে মেলানো হয়
         val tb = android.graphics.Rect()
         val tm = tgText.paint.fontMetrics
         tgText.paint.getTextBounds(tgText.text.toString(), 0, tgText.text.length, tb)
