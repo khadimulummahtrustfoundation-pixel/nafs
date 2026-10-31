@@ -90,34 +90,25 @@ class LoginActivity : Activity() {
                 startActivity(Intent(c, RegisterActivity::class.java))
             })
         }
-        // অ্যাডমিনের সাথে যোগাযোগ (টেলিগ্রাম)
-        val tg = LinearLayout(c).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(Ui.dp(c, 22), Ui.dp(c, 11), Ui.dp(c, 22), Ui.dp(c, 11))
+        // অ্যাডমিনের সাথে যোগাযোগ (টেলিগ্রাম) - লগইন বাটনের মতোই Button, তাই লেখা ঠিক মাঝখানে বসে
+        val tg = Button(c).apply {
+            text = "অ্যাডমিনের সাথে যোগাযোগ →"
+            isAllCaps = false; textSize = 15f; typeface = Ui.tf(c, true)
+            setTextColor(Ui.NEON)
             background = GradientDrawable().apply {
                 setColor(Color.TRANSPARENT)
                 setStroke(Ui.dp(c, 1.5f), Ui.NEON)
                 cornerRadius = Ui.dp(c, 50).toFloat()
             }
-            isClickable = true
+            stateListAnimator = null
+            minHeight = Ui.dp(c, 48)
+            setPadding(Ui.dp(c, 24), 0, Ui.dp(c, 24), 0)
             setOnClickListener {
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/rishadhossainmahib")))
                 } catch (e: Exception) {}
             }
         }
-        val tgText = Ui.dtext(c, "অ্যাডমিনের সাথে যোগাযোগ →", 15f, true, Ui.NEON).apply {
-            includeFontPadding = false
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, 0)
-        }
-        // বাংলা ফন্টের লেখা নিচে নেমে থাকে, তাই লেখার আসল মাঝখান বর্ডারের মাঝখানে মেলানো হয়
-        val tb = android.graphics.Rect()
-        val tm = tgText.paint.fontMetrics
-        tgText.paint.getTextBounds(tgText.text.toString(), 0, tgText.text.length, tb)
-        tgText.translationY = -((tb.top + tb.bottom) / 2f - (tm.ascent + tm.descent) / 2f)
-        tg.addView(tgText)
         root.addView(tg, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(c, 18) })
