@@ -31,13 +31,29 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.bars(this)
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        // নোটিফিকেশন থেকে ক্লিক করে আসলে নোটিশ ডায়ালগ ওপেন করা
+        if (intent?.action == "OPEN_NOTICES" || intent?.getStringExtra("open_page") == "notices") {
+            // একটু দেরি করে ডায়ালগ ওপেন করা যাতে UI লোড হতে সমস্যা না হয়
+            Handler(Looper.getMainLooper()).postDelayed({
+                showNoticesDialog()
+            }, 300)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         Session.keep = false
         Update.onFound = Runnable { runOnUiThread { Update.showIfNeeded(this) } }
-        // প্রতিবার অ্যাপে ঢোকার সময় লগইন লাগবে
         if (!Prefs.loggedIn(this) || !Session.unlocked) { goLogin(); return }
         build()
         recheck()
@@ -50,7 +66,6 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
-        // অ্যাপ থেকে বের হলে সেশন শেষ (সেটিংস স্ক্রিনে যাওয়ার সময় বাদে)
         if (!Session.keep) Session.unlocked = false
         Remote.onChange = null
         Update.onFound = null
@@ -72,12 +87,11 @@ class MainActivity : Activity() {
         Session.unlocked = false
     }
 
-    // অ্যাডমিনের Push Command এলে (অ্যাপ খোলা থাকলে) স্ক্রিন নতুন করে আঁকা। আর শীট থেকে কিছু টানা হয় না
     private fun recheck() {
         Remote.onChange = Runnable {
             runOnUiThread {
                 if (isFinishing) return@runOnUiThread
-                if (!Prefs.loggedIn(this)) goLogin()          // অ্যাডমিন অ্যাক্সেস বন্ধ করলে Pending পেজে
+                if (!Prefs.loggedIn(this)) goLogin()
                 else if (Session.unlocked) build()
             }
         }
@@ -225,6 +239,15 @@ class MainActivity : Activity() {
         root.addView(Ui.dtext(c,
             "স্বাগতম, ${Prefs.name(c)}\n" + if (allOk) "নিরাপদ ও পরিচ্ছন্ন অনলাইন অভিজ্ঞতা উপভোগ করুন。" else "নিচের সুইচগুলো চালু করুন।",
             14f, false, Ui.TXT2).apply { gravity = android.view.Gravity.CENTER })
+
+        // 🔔 নোটিশ বা বার্তা দেখার কার্ড (Notification Inbox)
+        val noticeCard = Ui.dcard(c)
+        noticeCard.addView(Ui.dtext(c, "📬 অ্যাডমিনের বার্তা ও নোটিশ", 17f, true))
+        noticeCard.addView(Ui.dtext(c, "অ্যাডমিন থেকে পাঠানো জরুরি নোটিশগুলো এখানে দেখতে পাবেন।", 12.5f, false, Ui.TXT2))
+        noticeCard.addView(Ui.dbutton(c, "সব বার্তা দেখুন") {
+            showNoticesDialog()
+        })
+        root.addView(noticeCard)
 
         val setup = Ui.dcard(c)
         setup.addView(Ui.dtext(c, "সুরক্ষা সেটআপ", 17f, true))
@@ -424,8 +447,26 @@ class MainActivity : Activity() {
         setContentView(ScrollView(c).apply { background = Ui.bg(); addView(root) })
     }
 
-    // ইউজার নিজে কোনো ব্লক সুইচ বন্ধ করতে পারে না; শুধু অ্যাডমিনের Push Command (SWITCH_OFF) বন্ধ করে।
-    // বন্ধ থাকলে ইউজার নিজে আবার চালু করতে পারে।
+    // 📬 নোটিশ বা বার্তাগুলো ডায়ালগে দেখানোর ফাংশন
+    private fun showNoticesDialog() {
+        val notices = Prefs.getNotices(this) // SharedPreferences থেকে সেভ করা নোটিশ লিস্ট আনা
+        if (notices.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("জরুরি বার্তা")
+                .setMessage("এই মুহূর্তে কোনো নতুন বার্তা বা নোটিশ নেই।")
+                .setPositiveButton("ঠিক আছে", null)
+                .show()
+            return
+        }
+
+        val items = notices.map { "${it.title}\n${it.body}\n🕒 ${fmtDate(it.timestamp)}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("📬 অ্যাডমিনের বার্তা (${notices.size})")
+            .setItems(items) { _, _ -> }
+            .setPositiveButton("বন্ধ করুন", null)
+            .show()
+    }
+
     private fun toggleReel(fb: Boolean, currentlyOn: Boolean) {
         val c = this
         val name = if (fb) "Facebook Reels" else "Instagram Reels"
