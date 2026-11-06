@@ -3,6 +3,15 @@ package com.NafsGuard.guard
 import android.content.Context
 import android.os.SystemClock
 import android.provider.Settings
+import org.json.JSONArray
+import org.json.JSONObject
+
+// নোটিশ ডেটা ক্লাস
+data class NoticeItem(
+    val title: String,
+    val body: String,
+    val timestamp: Long
+)
 
 object Prefs {
     private fun sp(c: Context) =
@@ -87,6 +96,52 @@ object Prefs {
         while (l.size > 40) l.removeAt(0)
         sp(c).edit().putString("seen", l.joinToString(",")).apply()
         return true
+    }
+
+    // ---- ইন-অ্যাপ নোটিশ ও বার্তা সেভ এবং রিড করার ফাংশন ----
+    private const val KEY_NOTICES = "admin_notices"
+
+    fun getNotices(context: Context): List<NoticeItem> {
+        val jsonStr = sp(context).getString(KEY_NOTICES, "[]") ?: "[]"
+        val list = mutableListOf<NoticeItem>()
+        try {
+            val arr = JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    NoticeItem(
+                        title = obj.optString("title", "NafsGuard নোটিশ"),
+                        body = obj.optString("body", ""),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveNotice(context: Context, title: String, body: String, timestamp: Long) {
+        val notices = getNotices(context).toMutableList()
+        notices.add(0, NoticeItem(title, body, timestamp)) // নতুন নোটিশ উপরে যোগ হবে
+        
+        // সর্বোচ্চ ৫০টি নোটিশ সেভ রাখবে
+        if (notices.size > 50) {
+            notices.removeAt(notices.size - 1)
+        }
+
+        val arr = JSONArray()
+        for (item in notices) {
+            val obj = JSONObject().apply {
+                put("title", item.title)
+                put("body", item.body)
+                put("timestamp", item.timestamp)
+            }
+            arr.put(obj)
+        }
+        
+        sp(context).edit().putString(KEY_NOTICES, arr.toString()).apply()
     }
 
     fun words(c: Context): Set<String> =
