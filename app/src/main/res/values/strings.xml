@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">NafsGuard</string>
+    <string name="a11y_desc">NafsGuard সার্চ বক্স ও ব্রাউজারে খারাপ শব্দ/সাইট শনাক্ত করে আটকে দেয়।</string>
+</resources>
