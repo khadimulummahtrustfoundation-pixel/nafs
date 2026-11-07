@@ -1,4 +1,4 @@
-Package com.NafsGuard.guard
+package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
 import android.app.ActivityManager
@@ -163,7 +163,6 @@ class GuardService : AccessibilityService() {
         if (now - lastMediaBlock < 1500) return
         lastMediaBlock = now
         Diag.lastBlock = "media-search"; Diag.lastBlockAt = now
-        // অ্যাপ থেকে বের না করে ব্রাউজারের হোম পেইজে নিয়ে যায়
         var ok = false
         if (lastBrowserPkg.isNotEmpty()) {
             try {
@@ -234,7 +233,6 @@ class GuardService : AccessibilityService() {
         "ফোর্স স্টপ", "আনইনস্টল", "আনইন্সটল", "ডিঅ্যাক্টিভেট", "ডেটা মুছুন", "স্টোরেজ মুছুন"
     )
     private val adminWords = listOf("device admin", "device administrator", "ডিভাইস অ্যাডমিন")
-    // ---- ব্ল্যাকলিস্ট: তালিকার অ্যাপ খুললেই হোম স্ক্রিনে পাঠায় ----
     private var lastBlkAt = 0L
     private var lastBlkToast = 0L
     private fun isBlacklisted(pkg: String): Boolean =
@@ -292,7 +290,6 @@ class GuardService : AccessibilityService() {
         try {
             (getSystemService(Context.WINDOW_SERVICE) as WindowManager).addView(root, lp)
             blkOverlay = root
-            // কিছু না চাপলেও ৩ সেকেন্ড পর নিজে থেকে হোমে পাঠাবে
             handler.postDelayed({
                 if (blkOverlay === root) { removeBlkOverlay(); performGlobalAction(GLOBAL_ACTION_HOME) }
             }, 3000)
@@ -399,8 +396,6 @@ class GuardService : AccessibilityService() {
         if (sensitiveParts.none { p.contains(it) }) return false
         if (!has(root, "NafsGuard")) return false
         val isInstaller = p.contains("installer")
-        // লক থাকা অবস্থায়ও আপডেট চলবে: নতুন ভার্সন ঘোষণা থাকলে এবং এটা আনইনস্টল পর্দা না হলে ইনস্টলার আটকানো হবে না
-        // ইনস্টলার স্ক্রিন আনইনস্টল না হলে (ইনস্টল/আপডেট চলছে) সবসময় ছেড়ে দেওয়া হবে; Remote Config-এর মানের ওপর নির্ভর করবে না
         if (isInstaller && !isUninstallScreen(root)) return false
         if (!isInstaller) {
             val hit = detailWords.any { has(root, it) } ||
@@ -450,7 +445,6 @@ class GuardService : AccessibilityService() {
         }
         if (isBrowser(pkg) && pkg != packageName) {
             lastBrowserPkg = pkg
-            // ব্রাউজার খোলা বা পেজ বদলালেই সঙ্গে সঙ্গে ছবি/ভিডিও ট্যাব চেক হবে
             if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) lastMediaScan = 0L
         }
         if (pkg == packageName) return
@@ -781,7 +775,6 @@ class GuardService : AccessibilityService() {
         }
         return false
     }
-    // ---- YouTube Shorts ব্লক: Shorts প্লেয়ার বা Shorts ট্যাব খুললেই পেছনে পাঠায় ----
     private val ytPkg = "com.google.android.youtube"
     private val ytShortsKeys = listOf("reel_player", "reel_recycler", "reel_watch", "shorts_player", "shorts_container", "shorts_pager")
     private var lastYtScan = 0L
@@ -803,7 +796,6 @@ class GuardService : AccessibilityService() {
         }
         walk(root, 0)
         if (found != null) return found
-        // নিচের মেনুতে "Shorts" ট্যাব সিলেক্ট করা থাকলে
         try {
             for (n in root.findAccessibilityNodeInfosByText("Shorts")) {
                 var x: AccessibilityNodeInfo? = n
@@ -909,11 +901,12 @@ class GuardService : AccessibilityService() {
                     recognizer.process(InputImage.fromBitmap(bmp, 0))
                         .addOnSuccessListener { t ->
                             shotBusy = false
-                            try { liteEvaluate(t, bmp.width, bmp.height) } catch (e: Exception) {}
+                            try { liteEvaluate(t, bmp.width, bmp.height); bmp.recycle() } catch (e: Exception) { try { bmp.recycle() } catch(ex: Exception){} }
                         }
                         .addOnFailureListener { e ->
                             shotBusy = false
                             Diag.liteErr = "ocr:" + (e.message ?: "").take(30)
+                            try { bmp.recycle() } catch(ex: Exception){}
                         }
                 } catch (e: Exception) {
                     shotBusy = false
@@ -957,7 +950,6 @@ class GuardService : AccessibilityService() {
         Diag.liteOcr = (if (viewer) "[VIEWER] " else "") + (if (topLines.isEmpty()) "-" else topLines.joinToString("|"))
         Diag.liteOcrAt = now
 
-        // Updated safe screen check
         var safeScreen = false
         for (b in t.textBlocks) for (ln in b.lines) {
             val box = ln.boundingBox ?: continue
@@ -1039,7 +1031,10 @@ class GuardService : AccessibilityService() {
                             val hw = Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
                             val bmp = hw?.copy(Bitmap.Config.ARGB_8888, false)
                             hb.close()
-                            if (bmp != null) blurred = blurBitmap(bmp)
+                            if (bmp != null) {
+                                blurred = blurBitmap(bmp)
+                                bmp.recycle()
+                            }
                         } catch (e: Exception) {}
                         warnBusy = false
                         buildWarning(pkg, blurred)
