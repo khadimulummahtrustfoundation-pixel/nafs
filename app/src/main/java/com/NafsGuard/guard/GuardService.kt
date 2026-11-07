@@ -1,4 +1,4 @@
-package com.NafsGuard.guard
+Package com.NafsGuard.guard
 
 import android.accessibilityservice.AccessibilityService
 import android.app.ActivityManager
@@ -400,7 +400,8 @@ class GuardService : AccessibilityService() {
         if (!has(root, "NafsGuard")) return false
         val isInstaller = p.contains("installer")
         // লক থাকা অবস্থায়ও আপডেট চলবে: নতুন ভার্সন ঘোষণা থাকলে এবং এটা আনইনস্টল পর্দা না হলে ইনস্টলার আটকানো হবে না
-        if (isInstaller && Update.needed(this) && !isUninstallScreen(root)) return false
+        // ইনস্টলার স্ক্রিন আনইনস্টল না হলে (ইনস্টল/আপডেট চলছে) সবসময় ছেড়ে দেওয়া হবে; Remote Config-এর মানের ওপর নির্ভর করবে না
+        if (isInstaller && !isUninstallScreen(root)) return false
         if (!isInstaller) {
             val hit = detailWords.any { has(root, it) } ||
                 (adminActive() && adminWords.any { has(root, it) })
@@ -472,7 +473,7 @@ class GuardService : AccessibilityService() {
                     handler.postDelayed({ blockMedia(System.currentTimeMillis()) }, 500)
                 }
                 val p = pkg.lowercase()
-                val updateOk = p.contains("installer") && Update.needed(this) && !lastWinClass.lowercase().contains("uninstall")
+                val updateOk = p.contains("installer") && !lastWinClass.lowercase().contains("uninstall")
                 if (Prefs.locked(this) && !updateOk && clickParts.any { p.contains(it) } && clickedOurName(e)) {
                     handler.postDelayed({ block() }, 450)
                 }
