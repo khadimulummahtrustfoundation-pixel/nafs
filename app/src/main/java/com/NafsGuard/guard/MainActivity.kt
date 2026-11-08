@@ -178,6 +178,15 @@ class MainActivity : Activity() {
     private var pendingLink = false
 
     private fun enableLinkBlock() {
+        // VPN অনুমতি আগে থেকেই থাকলে (যেমন সেইফ সার্চ চালু) সরাসরি চালু করে সাথে সাথে স্ক্রিন আপডেট
+        if (VpnService.prepare(this) == null) {
+            pendingLink = false
+            Prefs.setLinkBlock(this, true)
+            try { DnsVpnService.start(this) } catch (e: Exception) {}
+            build()
+            refreshLater()
+            return
+        }
         pendingLink = true
         enableSafe()
     }
@@ -202,6 +211,7 @@ class MainActivity : Activity() {
     private fun startSafe() {
         if (pendingLink) { pendingLink = false; Prefs.setLinkBlock(this, true) } else Prefs.setSafe(this, true)
         DnsVpnService.start(this)
+        build()
         refreshLater()
     }
 
@@ -231,6 +241,7 @@ class MainActivity : Activity() {
     }
 
     private var taps = 0
+    private var mainScroll: ScrollView? = null
 
     private fun build() {
         val c: Context = this
@@ -238,8 +249,9 @@ class MainActivity : Activity() {
         val adminOn = dpm.isAdminActive(admin)
         val a11y = a11yOn()
         val battOk = (getSystemService(Context.POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName)
-        val safe = DnsVpnService.active
-        val allOk = a11y && adminOn && battOk && safe
+        val vpnUp = DnsVpnService.active
+        val safe = Prefs.safe(c) && vpnUp
+        val allOk = a11y && adminOn && battOk && vpnUp
 
         val root = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
@@ -302,7 +314,13 @@ class MainActivity : Activity() {
 
         setup.addView(Ui.toggleRow(c, "🔍", "সেইফ সার্চ", "অনুপযুক্ত ফলাফল ফিল্টার করে", safe) {
             when {
-                !safe -> enableSafe()
+                !safe -> {
+                    if (VpnService.prepare(c) == null) {
+                        Prefs.setSafe(c, true)
+                        try { DnsVpnService.start(c) } catch (e: Exception) {}
+                        build(); refreshLater()
+                    } else enableSafe()
+                }
                 locked -> toast("লক চালু থাকায় সেইফ সার্চ বন্ধ করা যাবে না")
                 else -> { Prefs.setSafe(c, false); if (!Prefs.linkBlock(c)) DnsVpnService.stop(c); refreshLater() }
             }
@@ -496,7 +514,25 @@ class MainActivity : Activity() {
         }
         root.addView(mainLockCard)
 
-        setContentView(ScrollView(c).apply { background = Ui.bg(); addView(root) })
+        // স্ক্রল অবস্থান ধরে রাখা: build() বারবার ডাকলেও পেজ উপরে চলে যাবে না
+        val sv = mainScroll
+        if (sv == null) {
+            val ns = ScrollView(c).apply { background = Ui.bg(); addView(root) }
+            mainScroll = ns
+            setContentView(ns)
+        } else {
+            val y = sv.scrollY
+            sv.removeAllViews()
+            sv.addView(root)
+            sv.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    sv.viewTreeObserver.removeOnPreDrawListener(this)
+                    sv.scrollTo(0, y)
+                    return true
+                }
+            })
+            sv.post { sv.scrollTo(0, y) }
+        }
     }
 
     // সেভ করা পুশ বার্তাগুলো (৭ দিনের মধ্যে) পুরো লেখাসহ দেখানো
