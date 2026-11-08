@@ -44,9 +44,9 @@ class MainActivity : Activity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        // নোটিফিকেশন থেকে ক্লিক করে আসলে নোটিশ ডায়ালগ ওপেন করা
+        // নোটিফিকেশন থেকে ক্লিক করে আসলে নোটিশ ডায়ালগ ওপেন করা
         if (intent?.action == "OPEN_NOTICES" || intent?.getStringExtra("open_page") == "notices") {
-            // একটু দেরি করে ডায়ালগ ওপেন করা যাতে UI লোড হতে সমস্যা না হয়
+            // একটু দেরি করে ডায়ালগ ওপেন করা যাতে UI লোড হতে সমস্যা না হয়
             Handler(Looper.getMainLooper()).postDelayed({
                 showNoticesDialog()
             }, 300)
@@ -476,24 +476,25 @@ class MainActivity : Activity() {
 
         root.addView(Pin.card(this) { build() })
 
-        val lc = Ui.dcard(c)
-        lc.addView(Ui.dtext(c, "মেইন লক", 17f, true))
+        // নাম পরিবর্তন করে 'lc' এর পরিবর্তে 'mainLockCard' করা হয়েছে যাতে কনফ্লিক্ট না হয়
+        val mainLockCard = Ui.dcard(c)
+        mainLockCard.addView(Ui.dtext(c, "মেইন লক", 17f, true))
         val isOwner = Owner.isOwner(c)
-        lc.addView(Ui.toggleRow(c, "🔒", "অ্যাপ ও আনইন্সটল লক", "মেয়াদ থাকা পর্যন্ত আনইন্সটল ও গার্ড বন্ধ করা যাবে না", locked) {
+        mainLockCard.addView(Ui.toggleRow(c, "🔒", "অ্যাপ ও আনইন্সটল লক", "মেয়াদ থাকা পর্যন্ত আনইন্সটল ও গার্ড বন্ধ করা যাবে না", locked) {
             if (locked) toast("লক শুধু অ্যাডমিন খুলে দিতে পারবেন বা মেয়াদ শেষে খুলবে") else startLockFlow()
         })
-        lc.addView(Ui.dtext(c,
+        mainLockCard.addView(Ui.dtext(c,
             if (isOwner) "🛡️ Device Owner সক্রিয় (সবচেয়ে শক্ত লক)" else "Device Owner বন্ধ (সাধারণ লক)", 13f, false, Ui.TXT2))
         if (locked) {
-            lc.addView(Ui.dtext(c, "🔒 লক চালু, মেয়াদ শেষ: ${fmtDate(Prefs.lockUntil(c))}", 15f, true, Ui.NEON))
-            lc.addView(Ui.dtext(c, "লক শুধু অ্যাডমিন খুলে দিতে পারবেন বা মেয়াদ শেষে নিজে খুলবে।", 12.5f, false, Ui.TXT2))
+            mainLockCard.addView(Ui.dtext(c, "🔒 লক চালু, মেয়াদ শেষ: ${fmtDate(Prefs.lockUntil(c))}", 15f, true, Ui.NEON))
+            mainLockCard.addView(Ui.dtext(c, "লক শুধু অ্যাডমিন খুলে দিতে পারবেন বা মেয়াদ শেষে নিজে খুলবে।", 12.5f, false, Ui.TXT2))
         } else {
-            if (isOwner) lc.addView(Ui.dbutton(c, "Device Owner বন্ধ করুন", true) { releaseOwner() })
-            if (adminOn && !isOwner) lc.addView(Ui.dbutton(c, "অ্যাডমিন বন্ধ করুন (আনইন্সটলের জন্য)", true) {
+            if (isOwner) mainLockCard.addView(Ui.dbutton(c, "Device Owner বন্ধ করুন", true) { releaseOwner() })
+            if (adminOn && !isOwner) mainLockCard.addView(Ui.dbutton(c, "অ্যাডমিন বন্ধ করুন (আনইন্সটলের জন্য)", true) {
                 dpm.removeActiveAdmin(admin); Prefs.clearLock(c); build()
             })
         }
-        root.addView(lc)
+        root.addView(mainLockCard)
 
         setContentView(ScrollView(c).apply { background = Ui.bg(); addView(root) })
     }
