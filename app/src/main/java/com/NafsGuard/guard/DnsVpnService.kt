@@ -1,0 +1,199 @@
+package com.NafsGuard.guard
+
+import android.content.Context
+import android.content.Intent
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.util.concurrent.Executors
+
+/**
+ * সেইফ সার্চ: লোকাল VPN দিয়ে DNS রিকোয়েস্ট ধরে CleanBrowsing-এ পাঠায়।
+ * ছবি/ভিডিওর CDN ডোমেইন (fbcdn, scontent, video…) ইচ্ছা করেই ব্লক করা হয় না,
+ * কারণ DNS দিয়ে রিল আর সাধারণ ভিডিও আলাদা করা যায় না। রিল ব্লক করে GuardService।
+ */
+class DnsVpnService : VpnService() {
+
+    companion object {
+        @Volatile var active = false
+        private val VIRTUAL_DNS = byteArrayOf(10, 111, 222.toByte(), 2)
+        private val UPSTREAM = listOf(
+            byteArrayOf(185.toByte(), 228.toByte(), 168.toByte(), 168.toByte()),
+            byteArrayOf(185.toByte(), 228.toByte(), 169.toByte(), 168.toByte())
+        )
+
+        fun start(c: Context) {
+            c.startService(Intent(c, DnsVpnService::class.java))
+        }
+
+        fun stop(c: Context) {
+            c.startService(Intent(c, DnsVpnService::class.java).setAction("STOP"))
+        }
+    }
+
+    private var tun: ParcelFileDescriptor? = null
+    private val pool = Executors.newCachedThreadPool()
+    @Volatile private var running = false
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "STOP") {
+            shutdown(); stopSelf(); return START_NOT_STICKY
+        }
+        startVpn()
+        return START_STICKY
+    }
+
+    private fun startVpn() {
+        if (running) return
+        try {
+            val pfd = Builder()
+                .setSession("NafsGuard Safe Search")
+                .addAddress("10.111.222.1", 32)
+                .addDnsServer("10.111.222.2")
+                .addRoute("10.111.222.2", 32)
+                .setBlocking(true)
+                .establish() ?: return
+            tun = pfd
+            running = true
+            active = true
+            Thread { loop(pfd) }.start()
+        } catch (e: Exception) {
+            running = false; active = false
+        }
+    }
+
+    private fun shutdown() {
+        running = false
+        active = false
+        try { tun?.close() } catch (e: Exception) {}
+        tun = null
+    }
+
+    override fun onDestroy() { shutdown(); super.onDestroy() }
+    override fun onRevoke() { shutdown(); super.onRevoke() }
+
+    private fun u16(b: ByteArray, o: Int) =
+        ((b[o].toInt() and 0xFF) shl 8) or (b[o + 1].toInt() and 0xFF)
+
+    private fun loop(pfd: ParcelFileDescriptor) {
+        val input = FileInputStream(pfd.fileDescriptor)
+        val output = FileOutputStream(pfd.fileDescriptor)
+        val buf = ByteArray(32767)
+        var errs = 0
+        while (running) {
+            try {
+                val n = input.read(buf)
+                if (n < 0) break
+                errs = 0
+                if (n < 28) continue
+                if (((buf[0].toInt() shr 4) and 0x0F) != 4) continue
+                val ihl = (buf[0].toInt() and 0x0F) * 4
+                if (buf[9].toInt() != 17 || n < ihl + 8) continue
+                var match = true
+                for (i in 0..3) if (buf[16 + i] != VIRTUAL_DNS[i]) match = false
+                if (!match) continue
+                if (u16(buf, ihl + 2) != 53) continue
+                val srcPort = u16(buf, ihl)
+                val udpLen = u16(buf, ihl + 4)
+                val end = minOf(n, ihl + udpLen)
+                if (end <= ihl + 8) continue
+                val query = buf.copyOfRange(ihl + 8, end)
+                val clientIp = buf.copyOfRange(12, 16)
+                pool.execute { resolve(query, clientIp, srcPort, output) }
+            } catch (e: Exception) {
+                if (!running) break
+                errs++
+                if (errs > 20) break
+                try { Thread.sleep(50) } catch (x: Exception) {}
+            }
+        }
+        if (running) { shutdown(); try { stopSelf() } catch (e: Exception) {} }
+    }
+
+    // DNS প্রশ্ন থেকে ডোমেইন নাম বের করা (যেমন "t.me")
+    private fun qname(q: ByteArray): String? {
+        if (q.size < 13) return null
+        val sb = StringBuilder()
+        var i = 12
+        while (i < q.size) {
+            val len = q[i].toInt() and 0xFF
+            if (len == 0) break
+            if ((len and 0xC0) != 0 || i + 1 + len > q.size) return null
+            if (sb.isNotEmpty()) sb.append('.')
+            for (k in 1..len) sb.append((q[i + k].toInt() and 0xFF).toChar())
+            i += 1 + len
+        }
+        return sb.toString()
+    }
+
+    // ব্লক করা ডোমেইনের জন্য "NXDOMAIN" (এই নামে কিছু নেই) উত্তর বানানো
+    private fun nxdomain(q: ByteArray): ByteArray {
+        var i = 12
+        while (i < q.size && q[i].toInt() != 0) i += (q[i].toInt() and 0xFF) + 1
+        val end = minOf(q.size, i + 1 + 4)
+        val r = q.copyOfRange(0, end)
+        r[2] = (0x80 or (q[2].toInt() and 0x01)).toByte()
+        r[3] = 0x83.toByte()
+        for (k in 6..11) r[k] = 0
+        return r
+    }
+
+    private fun resolve(query: ByteArray, clientIp: ByteArray, clientPort: Int, out: FileOutputStream) {
+        val host = qname(query)
+        if (host != null && LinkBlock.isBlockedHost(host)) {
+            try {
+                val r = nxdomain(query)
+                writeResponse(r, r.size, clientIp, clientPort, out)
+            } catch (e: Exception) {}
+            return
+        }
+        for (up in UPSTREAM) {
+            try {
+                val s = DatagramSocket()
+                try {
+                    protect(s)
+                    s.soTimeout = 3000
+                    s.send(DatagramPacket(query, query.size, InetAddress.getByAddress(up), 53))
+                    val rb = ByteArray(4096)
+                    val rp = DatagramPacket(rb, rb.size)
+                    s.receive(rp)
+                    writeResponse(rb, rp.length, clientIp, clientPort, out)
+                    return
+                } finally {
+                    s.close()
+                }
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    private fun writeResponse(data: ByteArray, len: Int, clientIp: ByteArray, clientPort: Int, out: FileOutputStream) {
+        val total = 20 + 8 + len
+        val p = ByteArray(total)
+        p[0] = 0x45
+        p[2] = (total shr 8).toByte(); p[3] = total.toByte()
+        p[6] = 0x40.toByte()
+        p[8] = 64; p[9] = 17
+        System.arraycopy(VIRTUAL_DNS, 0, p, 12, 4)
+        System.arraycopy(clientIp, 0, p, 16, 4)
+        var sum = 0
+        var i = 0
+        while (i < 20) {
+            sum += ((p[i].toInt() and 0xFF) shl 8) or (p[i + 1].toInt() and 0xFF)
+            i += 2
+        }
+        while ((sum shr 16) != 0) sum = (sum and 0xFFFF) + (sum shr 16)
+        val ck = sum.inv() and 0xFFFF
+        p[10] = (ck shr 8).toByte(); p[11] = ck.toByte()
+        p[20] = 0; p[21] = 53
+        p[22] = (clientPort shr 8).toByte(); p[23] = clientPort.toByte()
+        val ul = 8 + len
+        p[24] = (ul shr 8).toByte(); p[25] = ul.toByte()
+        System.arraycopy(data, 0, p, 28, len)
+        synchronized(out) { out.write(p) }
+    }
+}
