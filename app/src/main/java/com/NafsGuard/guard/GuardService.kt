@@ -97,7 +97,9 @@ class GuardService : AccessibilityService() {
             try { Access.enforceExpiry(this@GuardService) } catch (e: Throwable) {}
             try { vpnWatch() } catch (e: Exception) {}
             try { keepAliveTick() } catch (e: Throwable) {}
-            handler.postDelayed(this, 1500)
+            val fp = Diag.pkg
+            val fast = (fp in fbPkgs || fp in igPkgs) && reelEnabled(fp)
+            handler.postDelayed(this, if (fast) 500L else 1500L)
         }
     }
     private val mediaWords = setOf("images", "image", "videos", "video", "short videos", "ছবি", "ছবিগুলো", "ভিডিও", "ভিডিওগুলো")
@@ -226,9 +228,12 @@ class GuardService : AccessibilityService() {
                 l.contains("লিংক কপি") || l.contains("লিঙ্ক কপি") || l.contains("কপি লিংক") || l.contains("কপি লিঙ্ক"))
         }
         // সাধারণ "Copy": স্ক্রিনে ব্লক-লিংক থাকলে সন্দেহ করে মুছব
-        val plainCopy = labels.any { l -> l == "copy" || l == "কপি" || l == "কপি করুন" }
-        if (!linkCopy && !(plainCopy && linkOnScreen)) return
-        for (d in longArrayOf(150, 500, 1200)) {
+        val plainCopy = labels.any { l ->
+            l.length <= 25 && (l.startsWith("copy") || l.contains("কপি"))
+        }
+        // linkOnScreen পুরোনো হতে পারে, তাই এই মুহূর্তে স্ক্রিন আবার পড়ে দেখি
+        if (!linkCopy && !(plainCopy && (linkOnScreen || screenHasLink()))) return
+        for (d in longArrayOf(100, 400, 900, 1800, 3000)) {
             handler.postDelayed({
                 try {
                     if (LinkBlock.guardClipboard(this, true)) {
@@ -243,23 +248,49 @@ class GuardService : AccessibilityService() {
     private var linkClickPkg = ""
     private val linkApps = setOf(
         "org.telegram.messenger", "org.telegram.messenger.web", "org.telegram.plus",
-        "org.thunderdog.challegram", "com.whatsapp", "com.whatsapp.w4b", "com.dubox.drive"
+        "org.thunderdog.challegram", "com.whatsapp", "com.whatsapp.w4b", "com.dubox.drive",
+        "com.facebook.orca", "com.facebook.mlite"
     )
-    private fun nodeHasLink(n: AccessibilityNodeInfo?, depth: Int, cnt: IntArray): Boolean {
+    @Volatile private var linkClickAt = 0L
+    @Volatile private var linkClickDirect = false
+    private var tapScrolled = false
+    private val fbMsgPkgs = setOf("com.facebook.katana", "com.facebook.lite", "com.facebook.orca", "com.facebook.mlite")
+    /** এই মুহূর্তে স্ক্রিনে (সরাসরি পড়ে) ব্লক-লিংক আছে কি না */
+    private val socialPkgs get() = fbMsgPkgs + igPkgs
+    private fun screenHasLink(strict: Boolean = false): Boolean {
+        return try {
+            val r = rootInActiveWindow ?: return false
+            val sb = StringBuilder()
+            collectText(r, sb, 0, intArrayOf(0))
+            val t = sb.toString()
+            LinkBlock.hasBlockedLink(t) || (strict && LinkBlock.externalNotAllowed(t))
+        } catch (e: Throwable) { false }
+    }
+    /** ছোঁয়া শেষ হলে (ট্যাপ), চ্যাট/সোশ্যাল অ্যাপে ব্লক-লিংক দেখা গেলে পরের স্ক্রিন বদলকে সন্দেহ করি */
+    private fun onTouchEnd(pkg: String) {
+        if (tapScrolled || !Prefs.linkBlock(this)) return
+        if (pkg !in linkApps && pkg !in fbMsgPkgs) return
+        if (linkOnScreen || screenHasLink(pkg in socialPkgs)) {
+            linkClickPkg = pkg; linkClickAt = System.currentTimeMillis(); linkClickDirect = false
+        }
+    }
+    private fun nodeHasLink(n: AccessibilityNodeInfo?, depth: Int, cnt: IntArray, strict: Boolean = false): Boolean {
         if (n == null || depth > 2 || cnt[0] > 60) return false
         cnt[0]++
         val a = n.text?.toString() ?: ""
         val b = n.contentDescription?.toString() ?: ""
         if (LinkBlock.hasBlockedLink(a) || LinkBlock.hasBlockedLink(b)) return true
-        for (i in 0 until n.childCount) if (nodeHasLink(n.getChild(i), depth + 1, cnt)) return true
+        if (strict && (LinkBlock.externalNotAllowed(a) || LinkBlock.externalNotAllowed(b))) return true
+        for (i in 0 until n.childCount) if (nodeHasLink(n.getChild(i), depth + 1, cnt, strict)) return true
         return false
     }
-    private fun clickedBlockedLink(e: AccessibilityEvent): Boolean {
-        if (e.text?.any { LinkBlock.hasBlockedLink(it.toString()) } == true) return true
+    private fun clickedBlockedLink(e: AccessibilityEvent, pkg: String): Boolean {
+        val strict = pkg in socialPkgs
+        if (e.text?.any { LinkBlock.hasBlockedLink(it.toString()) || (strict && LinkBlock.externalNotAllowed(it.toString())) } == true) return true
         var n: AccessibilityNodeInfo? = e.source
         var up = 0
         while (n != null && up < 3) {
-            if (nodeHasLink(n, 0, intArrayOf(0))) return true
+            if (nodeHasLink(n, 0, intArrayOf(0), strict)) return true
             n = n.parent; up++
         }
         return false
@@ -267,6 +298,7 @@ class GuardService : AccessibilityService() {
     private fun onBlockedLinkClick(pkg: String) {
         val now = System.currentTimeMillis()
         linkClickPkg = pkg
+        linkClickAt = now; linkClickDirect = true
         Diag.lastBlock = "link-click"; Diag.lastBlockAt = now
         LinkBlock.guardClipboard(this, false)
         if (now - lastLinkToast > 2500) { lastLinkToast = now; toast("🚫 NafsGuard: এই লিংক ব্লক করা আছে") }
@@ -550,6 +582,24 @@ class GuardService : AccessibilityService() {
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
                 lastWinPkg = pkg
                 lastWinClass = cls
+                val tl = System.currentTimeMillis()
+                if (linkClickAt != 0L && tl - linkClickAt in 100..2500 && Prefs.linkBlock(this) && pkg != packageName) {
+                    val cl0 = cls.lowercase()
+                    if (pkg == linkClickPkg) {
+                        val kw = listOf("invite", "join", "browser", "webview", "instantview", "customtab")
+                        if (linkClickDirect || kw.any { cl0.contains(it) }) {
+                            linkClickAt = 0L
+                            Diag.lastBlock = "link-open-back"; Diag.lastBlockAt = tl
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                            toast("🚫 NafsGuard: এই লিংক ব্লক করা আছে")
+                        }
+                    } else if (pkg in linkApps || isBrowser(pkg)) {
+                        linkClickAt = 0L
+                        Diag.lastBlock = "link-open-home"; Diag.lastBlockAt = tl
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                        toast("🚫 NafsGuard: এই লিংক ব্লক করা আছে")
+                    }
+                }
                 if (reelEnabled(pkg)) {
                     val tNow = System.currentTimeMillis()
                     Diag.reelWin = cls
@@ -587,7 +637,7 @@ class GuardService : AccessibilityService() {
                         if (cy < dmx.heightPixels * 20 / 100 && !reelTap) liteGraceUntil = System.currentTimeMillis() + 5000
                     }
                 }
-                if (Prefs.linkBlock(this) && clickedBlockedLink(e)) { onBlockedLinkClick(pkg); return }
+                if (Prefs.linkBlock(this) && clickedBlockedLink(e, pkg)) { onBlockedLinkClick(pkg); return }
                 onCopyTapped(e)
                 if (Prefs.media(this) && isBrowser(pkg) && clickedMediaTab(e.source)) {
                     handler.postDelayed({ blockMedia(System.currentTimeMillis()) }, 500)
@@ -599,8 +649,16 @@ class GuardService : AccessibilityService() {
                 }
                 return
             }
-            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_TOUCH_INTERACTION_START,
-            AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> return
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                tapScrolled = true
+                if (reelEnabled(pkg)) {
+                    val r = rootInActiveWindow
+                    if (r != null) checkReels(r, r.packageName?.toString() ?: pkg)
+                }
+                return
+            }
+            AccessibilityEvent.TYPE_TOUCH_INTERACTION_START -> { tapScrolled = false; return }
+            AccessibilityEvent.TYPE_TOUCH_INTERACTION_END -> { onTouchEnd(pkg); return }
         }
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: pkg
@@ -981,7 +1039,7 @@ class GuardService : AccessibilityService() {
     private fun checkReels(root: AccessibilityNodeInfo, pkg: String): Boolean {
         if (!reelEnabled(pkg)) return false
         val now = System.currentTimeMillis()
-        if (now - lastReelScan < 350) return false
+        if (now - lastReelScan < 150) return false
         lastReelScan = now
         if (awaiting(now)) return false
         if (now < liteGraceUntil) return false
@@ -1127,6 +1185,9 @@ class GuardService : AccessibilityService() {
         if (root == null) { Diag.rootNull++; return }
         val pkg = root.packageName?.toString() ?: return
         if (pkg != packageName) { Diag.pkg = pkg; Diag.watched = shouldScan(pkg) }
+        if (pkg != packageName && Prefs.linkBlock(this)) {
+            try { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { checkInput(it, pkg) } } catch (e: Throwable) {}
+        }
         if (checkReels(root, pkg)) return
         if (!shouldScan(pkg)) return
         scanPageText(root, pkg)
