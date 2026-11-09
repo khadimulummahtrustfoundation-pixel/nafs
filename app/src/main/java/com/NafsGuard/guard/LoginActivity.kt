@@ -41,7 +41,7 @@ class LoginActivity : Activity() {
     }
 
     override fun onPause() {
-        pulse?.cancel(); pulse = null
+        pend?.stop(); pend = null
         h.removeCallbacksAndMessages(null)
         Update.onFound = null
         super.onPause()
@@ -91,137 +91,24 @@ class LoginActivity : Activity() {
     }
 
     // ---------- Pending ----------
-    private var pulse: android.animation.AnimatorSet? = null
+    private var pend: PendingView? = null
 
-    // স্ক্রিনে আঁটানোর জন্য মাপের ধাপ (১ = আগের মতো পুরো মাপ; ছোট ফোনে ধাপে ধাপে ছোট হয়)
-    private val PK = floatArrayOf(1f, .9f, .8f, .72f, .64f, .56f)
+    // স্ক্রিনে আঁটানোর জন্য মাপের ধাপ (১ = পুরো মাপ; ছোট ফোনে ধাপে ধাপে ছোট হয়)
+    private val PK = floatArrayOf(1f, .92f, .84f, .76f, .68f, .6f)
 
     private fun sysBar(name: String): Int {
         val id = resources.getIdentifier(name, "dimen", "android")
         return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
-    private fun ic(c: Context, res: Int, tint: Int, sizeDp: Float) = android.widget.ImageView(c).apply {
-        setImageResource(res); setColorFilter(tint)
-        layoutParams = LinearLayout.LayoutParams(Ui.dp(c, sizeDp), Ui.dp(c, sizeDp))
-    }
-
-    // লেখা: উপরের ফাঁক (top) k দিয়ে ছোট হয়, ফন্ট kt দিয়ে সামান্য ছোট হয়
-    private fun tx(c: Context, s: String, size: Float, kt: Float, k: Float, bold: Boolean = false,
-                   color: Int = Ui.TXT, top: Float = 6f) =
-        Ui.dtext(c, s, size * kt, bold, color).apply {
-            (layoutParams as LinearLayout.LayoutParams).topMargin = Ui.dp(c, top * k)
-        }
-
-    private fun pcard(c: Context, k: Float) = Ui.dcard(c).apply {
-        setPadding(Ui.dp(c, 16f * k), Ui.dp(c, 14f * k), Ui.dp(c, 16f * k), Ui.dp(c, 16f * k))
-        (layoutParams as LinearLayout.LayoutParams).topMargin = Ui.dp(c, 14f * k)
-    }
-
-    // নাম, ফোন, মেয়াদের মতো এক লাইনের তথ্য: বাঁয়ে আইকন, ডানে লেখা
-    private fun infoRow(c: Context, res: Int, label: String, value: String, tint: Int, k: Float, kt: Float) = LinearLayout(c).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(0, Ui.dp(c, 8f * k), 0, Ui.dp(c, 8f * k))
-        addView(ic(c, res, tint, 22f * k))
-        addView(LinearLayout(c).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(Ui.dp(c, 14f * k), 0, 0, 0)
-            addView(tx(c, label, 12f, kt, k, color = Ui.TXT2))
-            addView(tx(c, value, 16f, kt, k, bold = true))
-        })
-    }
-
-    // ধাপের সারি: state 0 = শেষ, 1 = এখন চলছে, 2 = বাকি
-    private fun stepRow(c: Context, state: Int, title: String, sub: String, k: Float, kt: Float) = LinearLayout(c).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(0, Ui.dp(c, 8f * k), 0, Ui.dp(c, 8f * k))
-        val res = when (state) { 0 -> R.drawable.ic_check; 1 -> R.drawable.ic_dot; else -> R.drawable.ic_circle }
-        val tint = when (state) { 0 -> Ui.NEON; 1 -> Ui.AMBER; else -> Ui.CARD_STROKE }
-        addView(ic(c, res, tint, 24f * k))
-        addView(LinearLayout(c).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(Ui.dp(c, 14f * k), 0, 0, 0)
-            addView(tx(c, title, 15f, kt, k, bold = true, color = if (state == 2) Ui.TXT2 else Ui.TXT))
-            addView(tx(c, sub, 12.5f, kt, k, color = Ui.TXT2))
-        })
-    }
-
-    /** পেজের পুরো কনটেন্ট k মাপে বানায়। ফেরত: (মূল লেআউট, স্পন্দিত আইকনের বৃত্ত) */
-    private fun pendingContent(k: Float): Pair<LinearLayout, android.view.View> {
+    private fun newPending(k: Float): PendingView {
         val c: Context = this
-        val kt = 0.85f + 0.15f * k          // ফন্ট কম ছোট হয়, বেশি ছোট হয় ফাঁকা জায়গা
         val expired = Prefs.expired(c)
-        val accent = Ui.AMBER
-
-        val root = LinearLayout(c).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = Ui.bg()
-            val ph = Ui.dp(c, 28f * maxOf(k, .75f)); val pv = Ui.dp(c, 28f * k)
-            setPadding(ph, pv, ph, pv)
-            addView(Ui.heroLogo(c, (110f * k).toInt(), (44f * k).toInt()))
-            addView(tx(c, "NafsGuard", 30f, kt, k, bold = true, color = Ui.NEON).apply { gravity = Gravity.CENTER })
-        }
-
-        // স্ট্যাটাস আইকন: গোল বৃত্তের ভেতর (অপেক্ষায় থাকলে ধীরে স্পন্দিত হয়)
-        val badge = android.widget.FrameLayout(c).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0x22FFB74D); setStroke(Ui.dp(c, 2), accent)
-            }
-            layoutParams = LinearLayout.LayoutParams(Ui.dp(c, 88f * k), Ui.dp(c, 88f * k)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL; topMargin = Ui.dp(c, 22f * k); bottomMargin = Ui.dp(c, 8f * k)
-            }
-            addView(ic(c, if (expired) R.drawable.ic_clock else R.drawable.ic_hourglass, accent, 42f * k).apply {
-                layoutParams = android.widget.FrameLayout.LayoutParams(Ui.dp(c, 42f * k), Ui.dp(c, 42f * k), Gravity.CENTER)
-            })
-        }
-        root.addView(badge)
-
-        root.addView(tx(c, if (expired) "মেয়াদ শেষ হয়েছে" else "অনুমোদনের অপেক্ষায়", 22f, kt, k, bold = true, color = accent)
-            .apply { gravity = Gravity.CENTER })
-        root.addView(tx(c,
-            if (expired) "আপনার অ্যাকাউন্টের মেয়াদ শেষ, তাই সব সুরক্ষা বন্ধ আছে।"
-            else "আপনার রেজিস্ট্রেশন সম্পন্ন হয়েছে। অ্যাডমিন অনুমোদন দিলে অ্যাপ চালু হবে।",
-            14f, kt, k, color = Ui.TXT2).apply { gravity = Gravity.CENTER })
-
-        // আপনার তথ্য
-        val info = pcard(c, k)
-        info.addView(infoRow(c, R.drawable.ic_person, "নাম", Prefs.name(c), Ui.NEON, k, kt))
-        info.addView(Ui.divider(c))
-        info.addView(infoRow(c, R.drawable.ic_phone, "ফোন নম্বর", Prefs.phone(c), Ui.NEON, k, kt))
-        if (expired) {
-            info.addView(Ui.divider(c))
-            val d = java.text.SimpleDateFormat("d MMMM yyyy, h:mm a", java.util.Locale("bn", "BD"))
-                .format(java.util.Date(Prefs.expiryAt(c)))
-            info.addView(infoRow(c, R.drawable.ic_clock, "মেয়াদ শেষ হয়েছে", d, Ui.AMBER, k, kt))
-        }
-        root.addView(info)
-
-        // ধাপসমূহ
-        val steps = pcard(c, k)
-        if (expired) {
-            steps.addView(stepRow(c, 0, "মেয়াদ শেষ", "সুরক্ষা বন্ধ করা হয়েছে", k, kt))
-            steps.addView(stepRow(c, 1, "অ্যাডমিনের কাছে নবায়ন", "অ্যাডমিনের সাথে যোগাযোগ করুন", k, kt))
-            steps.addView(stepRow(c, 2, "আবার চালু", "অনুমোদন পেলেই অ্যাপ চালু হবে", k, kt))
-        } else {
-            steps.addView(stepRow(c, 0, "রেজিস্ট্রেশন", "সম্পন্ন হয়েছে", k, kt))
-            steps.addView(stepRow(c, 1, "অ্যাডমিনের অনুমোদন", "অপেক্ষা করা হচ্ছে", k, kt))
-            steps.addView(stepRow(c, 2, "অ্যাপ চালু", "অনুমোদন পেলেই শুরু হবে", k, kt))
-        }
-        root.addView(steps)
-
-        root.addView(Ui.dbutton(c, "অ্যাডমিনের সাথে যোগাযোগ করুন") {
+        val exp = if (expired) java.text.SimpleDateFormat("d MMMM yyyy, h:mm a", java.util.Locale("bn", "BD"))
+            .format(java.util.Date(Prefs.expiryAt(c))) else ""
+        return PendingUi.build(this, k, expired, Prefs.name(c), Prefs.phone(c), exp) {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/rishadhossainmahib"))) } catch (e: Exception) {}
-        }.apply {
-            minHeight = Ui.dp(c, 52f * maxOf(k, .8f))
-            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = Ui.dp(c, 18f * k)
-        })
-        root.addView(tx(c, "অনুমোদন এলে এই পেজ নিজে থেকেই মূল পেজে চলে যাবে।", 12.5f, kt, k, color = Ui.TXT2)
-            .apply { gravity = Gravity.CENTER })
-        return Pair(root, badge)
+        }
     }
 
     /** স্ক্রিনের উচ্চতায় আঁটে এমন সবচেয়ে বড় মাপের ধাপ বেছে নেয় (আনুমানিক; পরে আসল লেআউটে আবার যাচাই হয়) */
@@ -229,7 +116,7 @@ class LoginActivity : Activity() {
         val dm = resources.displayMetrics
         val avail = dm.heightPixels - sysBar("status_bar_height")
         for (i in PK.indices) {
-            val r = pendingContent(PK[i]).first
+            val r = newPending(PK[i]).root
             r.measure(
                 android.view.View.MeasureSpec.makeMeasureSpec(dm.widthPixels, android.view.View.MeasureSpec.EXACTLY),
                 android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED))
@@ -240,20 +127,12 @@ class LoginActivity : Activity() {
 
     private fun renderPending(idx: Int) {
         val c: Context = this
-        pulse?.cancel(); pulse = null
-        val (root, badge) = pendingContent(PK[idx])
-        val sv = ScrollView(c).apply { background = Ui.bg(); isFillViewport = true; addView(root) }
+        pend?.stop()
+        val pv = newPending(PK[idx])
+        pend = pv
+        val sv = ScrollView(c).apply { background = Ui.bg(); isFillViewport = true; clipChildren = false; addView(pv.frame) }
         setContentView(sv)
-
-        if (!Prefs.expired(c)) {
-            val sx = android.animation.ObjectAnimator.ofFloat(badge, "scaleX", 1f, 1.08f)
-            val sy = android.animation.ObjectAnimator.ofFloat(badge, "scaleY", 1f, 1.08f)
-            val al = android.animation.ObjectAnimator.ofFloat(badge, "alpha", 1f, 0.7f)
-            for (a in listOf(sx, sy, al)) { a.repeatCount = android.animation.ValueAnimator.INFINITE; a.repeatMode = android.animation.ValueAnimator.REVERSE }
-            pulse = android.animation.AnimatorSet().apply {
-                playTogether(sx, sy, al); duration = 1100; start()
-            }
-        }
+        pv.start()
 
         // আসল স্ক্রিনে কনটেন্ট এখনো বেশি লম্বা হলে এক ধাপ ছোট করে আবার সাজায় (সবচেয়ে ছোট ধাপে স্ক্রল থেকে যায়)
         if (idx < PK.size - 1) {
@@ -261,7 +140,7 @@ class LoginActivity : Activity() {
                 override fun onGlobalLayout() {
                     if (sv.height == 0) return
                     sv.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    if (!isFinishing && root.height > sv.height) renderPending(idx + 1)
+                    if (!isFinishing && pv.root.height > sv.height) renderPending(idx + 1)
                 }
             })
         }
