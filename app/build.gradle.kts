@@ -13,8 +13,8 @@ android {
         applicationId = "com.NafsGuard.guard"
         minSdk = 24
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.2"
+        versionCode = 6
+        versionName = "2.3"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     // সব বিল্ড একই চাবি (nafsguard.jks) দিয়ে সই হয়, তাই নতুন APK পুরোনোটার ওপর সরাসরি আপডেট হয় (আনইনস্টল লাগে না, ডাটা ও লক থাকে)
