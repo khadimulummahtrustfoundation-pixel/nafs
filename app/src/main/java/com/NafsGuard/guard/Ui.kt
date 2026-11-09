@@ -102,8 +102,8 @@ object Ui {
     }
 
     // লোগোর চারপাশে হালকা সবুজ আভা
-    fun heroLogo(c: Context, size: Int): FrameLayout {
-        val box = size + 44
+    fun heroLogo(c: Context, size: Int, glow: Int = 44): FrameLayout {
+        val box = size + glow
         return FrameLayout(c).apply {
             background = GradientDrawable().apply {
                 gradientType = GradientDrawable.RADIAL_GRADIENT
