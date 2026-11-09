@@ -498,7 +498,7 @@ class MainActivity : Activity() {
         val mainLockCard = Ui.dcard(c)
         mainLockCard.addView(Ui.dtext(c, "মেইন লক", 17f, true))
         val isOwner = Owner.isOwner(c)
-        mainLockCard.addView(Ui.toggleRow(c, "🔒", "অ্যাপ ও আনইন্সটল লক", "মেয়াদ থাকা পর্যন্ত আনইন্সটল ও গার্ড বন্ধ করা যাবে না", locked) {
+        mainLockCard.addView(Ui.toggleRow(c, "🔒", "অ্যাপ ও আনইন্সটল লক", "মেয়াদ থাকা পর্যন্ত আনইন্সটল, গার্ড বন্ধ ও ফ্যাক্টরি রিসেট করা যাবে না", locked) {
             if (locked) toast("লক শুধু অ্যাডমিন খুলে দিতে পারবেন বা মেয়াদ শেষে খুলবে") else startLockFlow()
         })
         mainLockCard.addView(Ui.dtext(c,
