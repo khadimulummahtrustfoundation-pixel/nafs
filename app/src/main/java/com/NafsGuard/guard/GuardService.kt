@@ -503,6 +503,7 @@ class GuardService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val pkg = root.packageName?.toString() ?: return
         if (deviceAdminGuard(root)) return
+        if (factoryResetGuard(pkg, root)) return
         protect(pkg, root)
     }
     private fun has(root: AccessibilityNodeInfo, t: String): Boolean {
@@ -519,6 +520,42 @@ class GuardService : AccessibilityService() {
             toast("🔒 লক চালু, NafsGuard-এর সেটিংস বদলানো যাবে না")
         }
     }
+    // ---------- ফ্যাক্টরি রিসেট আটকানো (মেইন লক চালু থাকলে) ----------
+    private val resetClassParts = listOf(
+        "masterclear", "factoryreset", "resetdashboard", "resetoptions",
+        "erasedata", "eraseall", "resetphone", "resetnetwork"
+    )
+    private val resetWords = listOf(
+        "factory data reset", "factory reset", "erase all data", "erase everything",
+        "reset phone", "reset options", "backup & reset", "backup and reset",
+        "ফ্যাক্টরি ডেটা রিসেট", "ফ্যাক্টরি রিসেট", "সব ডেটা মুছ", "রিসেট বিকল্প", "ফোন রিসেট"
+    )
+    private val settingsLike = listOf("settings", "securitycenter", "safecenter", "phonemaster", "appmanager")
+    private var lastResetBlock = 0L
+    private fun isSettingsPkg(pkg: String): Boolean {
+        val p = pkg.lowercase()
+        return pkg != packageName && settingsLike.any { p.contains(it) }
+    }
+    private fun blockReset() {
+        val now = System.currentTimeMillis()
+        if (now - lastResetBlock < 700) return
+        lastResetBlock = now
+        Diag.lastBlock = "factory-reset"; Diag.lastBlockAt = now
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        if (now - lastToast > 2500) {
+            lastToast = now
+            toast("🔒 লক চালু, ফ্যাক্টরি রিসেট করা যাবে না")
+        }
+    }
+    private fun factoryResetGuard(pkg: String, root: AccessibilityNodeInfo): Boolean {
+        if (!Prefs.locked(this) || !isSettingsPkg(pkg)) return false
+        val hit = resetClassParts.any { lastWinClass.lowercase().contains(it) } ||
+            resetWords.any { has(root, it) }
+        if (!hit) return false
+        blockReset()
+        return true
+    }
+
     private fun deviceAdminGuard(root: AccessibilityNodeInfo): Boolean {
         if (!Prefs.locked(this)) return false
         if (!lastWinPkg.lowercase().contains("settings")) return false
@@ -582,6 +619,7 @@ class GuardService : AccessibilityService() {
             if (cls.isNotEmpty() && !cls.startsWith("android")) {
                 lastWinPkg = pkg
                 lastWinClass = cls
+                if (Prefs.locked(this) && isSettingsPkg(pkg) && resetClassParts.any { cls.lowercase().contains(it) }) blockReset()
                 val tl = System.currentTimeMillis()
                 if (linkClickAt != 0L && tl - linkClickAt in 100..2500 && Prefs.linkBlock(this) && pkg != packageName) {
                     val cl0 = cls.lowercase()
@@ -644,6 +682,10 @@ class GuardService : AccessibilityService() {
                 }
                 val p = pkg.lowercase()
                 val updateOk = p.contains("installer") && !lastWinClass.lowercase().contains("uninstall")
+                if (Prefs.locked(this) && isSettingsPkg(pkg)) {
+                    val ct = ((e.text ?: emptyList<CharSequence>()).joinToString(" ") + " " + (e.contentDescription ?: "")).lowercase()
+                    if (resetWords.any { ct.contains(it) }) handler.postDelayed({ blockReset() }, 350)
+                }
                 if (Prefs.locked(this) && !updateOk && clickParts.any { p.contains(it) } && clickedOurName(e)) {
                     handler.postDelayed({ block() }, 450)
                 }
