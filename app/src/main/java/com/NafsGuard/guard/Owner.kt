@@ -21,6 +21,8 @@ object Owner {
             try { d.setUserControlDisabledPackages(a, listOf(c.packageName)) } catch (e: Exception) {}
         }
         try { d.addUserRestriction(a, UserManager.DISALLOW_SAFE_BOOT) } catch (e: Exception) {}
+        // সিস্টেম নিজেই ফ্যাক্টরি রিসেট আটকায় (সেটিংসে অপশন ধূসর/বন্ধ হয়ে যায়)
+        try { d.addUserRestriction(a, UserManager.DISALLOW_FACTORY_RESET) } catch (e: Exception) {}
         // Android 10+: Private DNS নিজে সেট হয় এবং ইউজার বদলাতে পারে না
         if (Build.VERSION.SDK_INT >= 29) {
             try { d.setGlobalPrivateDnsModeSpecifiedHost(a, "family-filter-dns.cleanbrowsing.org") } catch (e: Exception) {}
@@ -36,6 +38,7 @@ object Owner {
             try { d.setUserControlDisabledPackages(a, emptyList()) } catch (e: Exception) {}
         }
         try { d.clearUserRestriction(a, UserManager.DISALLOW_SAFE_BOOT) } catch (e: Exception) {}
+        try { d.clearUserRestriction(a, UserManager.DISALLOW_FACTORY_RESET) } catch (e: Exception) {}
         if (Build.VERSION.SDK_INT >= 29) {
             try { d.setGlobalPrivateDnsModeOpportunistic(a) } catch (e: Exception) {}
         }
