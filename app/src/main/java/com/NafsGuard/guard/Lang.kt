@@ -87,7 +87,7 @@ object Lang {
         "লক শুধু অ্যাডমিন বন্ধ করতে পারবেন" to "Only the administrator can turn off this lock",
         "Facebook Reels ব্লক চালু হয়েছে" to "Facebook Reels blocking enabled", "Instagram Reels ব্লক চালু হয়েছে" to "Instagram Reels blocking enabled",
         "YouTube Shorts ব্লক চালু হয়েছে" to "YouTube Shorts blocking enabled", "লিংক ব্লক শুধু অ্যাডমিন বন্ধ করতে পারবেন" to "Only the administrator can disable Link Block",
-        "ছবি ও ভিডিও সার্চ ব্লক চালু হয়েছে" to "Image and Video Search Block enabled", "শব্দ যোগ করুন" to "Add Word"
+        "ছবি ও ভিডিও সার্চ ব্লক চালু হয়েছে" to "Image and Video Search Block enabled", "শব্দ যোগ করুন" to "Add Word",
         "সুরক্ষা" to "Protection", "ব্লক" to "Block", "শব্দ" to "Words", "লক" to "Lock",
         "আপনি সুরক্ষিত আছেন" to "You are protected", "সুরক্ষা সম্পূর্ণ হয়নি" to "Protection incomplete",
         "ছবি ও ভিডিও সার্চ" to "Image & video search", "ব্ল্যাকলিস্ট অ্যাপ" to "Blacklisted apps",
